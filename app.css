@@ -91,6 +91,9 @@ body.rank #panel { display: none; }
 #rTable tr.row { cursor: pointer; }
 #rTable tr.row:hover { background: #f3f6fb; }
 #rTable tr.cur { background: #e6ebfa; }
+.leg .sw.wide { height: 10px; border-radius: 2px; }
+.barsw { display: inline-block; width: 14px; height: 8px; border-radius: 2px; margin-right: 5px; vertical-align: 0; }
+td.barrow { padding-top: 6px !important; line-height: 1.4; }
 #rTable .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
 @media (max-width: 900px) { .rgrid { grid-template-columns: minmax(0, 1fr); } #rDetail { position: static; } }
 @media (max-width: 700px) {

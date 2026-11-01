@@ -79,6 +79,7 @@ function saveHash() {
   const c = map.getCenter();
   const p = [`map=${map.getZoom().toFixed(2)}/${c.lat.toFixed(4)}/${c.lng.toFixed(4)}`, `bm=${state.basemap}`];
   if (state.sel !== null) p.push(`s=${state.sel}`);
+  if ($('#showBarriers').checked) p.push('bl=1');
   if (state.view === 'rank') {
     p.push('v=rank');
     if (R.unit === 'route') p.push('u=route');
@@ -86,6 +87,7 @@ function saveHash() {
     if (R.q) p.push(`q=${encodeURIComponent(R.q)}`);
     if (R.county !== '' && R.unit === 'seg') p.push(`cty=${R.county}`);
     if (R.long && R.unit === 'route') p.push('long=1');
+    if (R.bar && R.unit === 'seg') p.push(`cl=${R.bar}`);
   }
   history.replaceState(null, '', '#' + p.join('&'));
 }
@@ -100,7 +102,7 @@ const map = new maplibregl.Map({
 });
 map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
 map.addControl(new maplibregl.AttributionControl({ compact: true,
-  customAttribution: 'Crashes: CHP CCRS · Traffic: Caltrans Traffic Census (estimates; no endorsement)' }), 'bottom-right');
+  customAttribution: 'Crashes: CHP CCRS · Traffic: Caltrans Traffic Census (estimates; no endorsement) · Barriers: CDFW BIOS ds2867 (CC BY 4.0)' }), 'bottom-right');
 map.on('moveend', saveHash);
 // the compact credits box starts open; keep it folded on phones so it does not cover the map
 map.once('load', () => { if (isPhone()) document.querySelectorAll('.maplibregl-ctrl-attrib').forEach(e => e.classList.remove('maplibregl-compact-show')); });
@@ -110,6 +112,7 @@ function addLayers() {
   if (!state.segGeo || map.getSource('seg')) return;
   const dark = !!BASEMAPS[state.basemap].dark;
   const before = (map.getStyle().layers.find(l => l.type === 'symbol') || {}).id;
+  if (state.barGeo) addBarrierLayer(before);
   map.addSource('seg', { type: 'geojson', data: state.segGeo });
   map.addLayer({ id: 'seg-case', type: 'line', source: 'seg', layout: { 'line-cap': 'round', 'line-join': 'round' },
     paint: { 'line-color': dark ? '#000' : '#fff', 'line-opacity': 0.8,
@@ -120,6 +123,36 @@ function addLayers() {
     layout: { 'line-cap': 'round' },
     paint: { 'line-color': dark ? '#fff' : '#111', 'line-gap-width': ['interpolate', ['linear'], ['zoom'], 5, 2, 14, 9], 'line-width': 2.5 } });
   if (state.crashGeo) addCrashLayer();
+}
+// CDFW barrier list: a wide band under the risk colors, so both stay readable; darker = higher CDFW priority
+const BAR_COLOR = ['#cfcfe6', '#b9b7dc', '#8c86c4', '#54278f'];   // Remediated, Barrier, Priority, Top priority
+const BAR_LABEL = ['Remediated', 'Listed', 'Priority', 'Top priority'];
+function addBarrierLayer(before) {
+  if (map.getSource('bar')) return;
+  before = before || (map.getLayer('seg-case') ? 'seg-case' : (map.getStyle().layers.find(l => l.type === 'symbol') || {}).id);
+  map.addSource('bar', { type: 'geojson', data: state.barGeo });
+  map.addLayer({ id: 'bar', type: 'line', source: 'bar', layout: { 'line-cap': 'round', 'line-join': 'round',
+      visibility: $('#showBarriers').checked ? 'visible' : 'none' },
+    paint: { 'line-color': ['match', ['get', 'p'], ...BAR_COLOR.flatMap((c, i) => [i, c]), '#999'], 'line-opacity': 0.85,
+             'line-width': ['interpolate', ['linear'], ['zoom'], 5, 7, 10, 15, 14, 24] } }, before);
+}
+async function loadBarriers() {
+  if (state.barReq) return state.barReq;
+  state.barReq = getJSON(`data/barriers.json?v=${S.build}`).then(js => {
+    const dec = flat => { const c = []; let x = 0, y = 0; for (let j = 0; j < flat.length; j += 2) { x += flat[j]; y += flat[j + 1]; c.push([x / 1e5, y / 1e5]); } return c; };
+    state.barGeo = { type: 'FeatureCollection', features: js.g.map((parts, i) => ({ type: 'Feature', properties: { p: js.p[i] },
+      geometry: { type: 'MultiLineString', coordinates: parts.map(dec) } })) };
+    if (styleReady && map.getSource('seg')) addBarrierLayer();
+  }).catch(e => { state.barReq = null; console.error(e); });
+  return state.barReq;
+}
+function barrierRow(bi) {   // the CDFW listing of a stretch, for both detail boxes
+  const b = state.details.barriers;
+  if (bi < 0) return '<tr><td>On CDFW wildlife barrier list</td><td class="num">no</td></tr>';
+  return `<tr><td colspan="2" class="barrow"><span class="barsw" style="background:${BAR_COLOR[b.p[bi]]}"></span>On CDFW's wildlife <b>barrier</b> list` +
+    ` (${BAR_LABEL[b.p[bi]].toLowerCase()}): ${esc(b.nm[bi])}${b.sp[bi] ? ` · for ${esc(b.sp[bi])}` : ''}` +
+    `${b.u[bi] ? ` · <a href="${esc(b.u[bi])}" target="_blank" rel="noopener">CDFW summary</a>` : ''}` +
+    `<div class="muted">A list of roads animals struggle to cross, not of crash sites.</div></td></tr>`;
 }
 function addCrashLayer() {
   if (map.getSource('crash')) return;
@@ -169,6 +202,13 @@ async function loadCrashes() {
 }
 function maybeCrashes() { if (map.getZoom() >= CRASH_MINZOOM - 0.5 && $('#showCrashes').checked) loadCrashes(); }
 map.on('zoomend', maybeCrashes);
+$('#showBarriers').checked = HASH.bl === '1';
+$('#showBarriers').addEventListener('change', e => {
+  if (map.getLayer('bar')) map.setLayoutProperty('bar', 'visibility', e.target.checked ? 'visible' : 'none');
+  if (e.target.checked) loadBarriers();
+  legend(); saveHash();
+});
+if ($('#showBarriers').checked) loadBarriers();
 $('#showCrashes').addEventListener('change', e => {
   if (map.getLayer('crash')) map.setLayoutProperty('crash', 'visibility', e.target.checked ? 'visible' : 'none');
   maybeCrashes();
@@ -177,7 +217,9 @@ $('#showCrashes').addEventListener('change', e => {
 // ---------------- legend and detail ----------------
 function legend() {
   $('#legend').innerHTML = `<div class="legcap">Reported crashes per mile driven, as a multiple of the state average, at least:</div>` +
-    S.tiers.slice().reverse().map(t => `<div class="leg"><span class="sw" style="background:${t.color}"></span>${t.label}<span class="mi">${fmtInt(t.miles)} mi</span></div>`).join('');
+    S.tiers.slice().reverse().map(t => `<div class="leg"><span class="sw" style="background:${t.color}"></span>${t.label}<span class="mi">${fmtInt(t.miles)} mi</span></div>`).join('') +
+    ($('#showBarriers').checked ? `<div class="legcap" style="margin-top:6px">Wide band: on CDFW's wildlife barrier list (roads animals struggle to cross)</div>` +
+      [3, 2, 1].map(p => `<div class="leg"><span class="sw wide" style="background:${BAR_COLOR[p]}"></span>${BAR_LABEL[p]}</div>`).join('') : '');
 }
 function select(i, fly) {
   if (i !== state.sel && fly !== 'click') state.clickLL = null;
@@ -206,6 +248,7 @@ function renderDetail() {
       ${d.n[i] ? `<tr><td colspan="2" class="muted">${kinds}${d.dk[i] ? ` · ${d.dk[i]} in the dark` : ''}</td></tr>` : ''}
       <tr><td>Vehicles per day (average)</td><td class="num">${fmtInt(d.a[i])}</td></tr>
       <tr><td>Length</td><td class="num">${d.l[i].toFixed(1)} mi</td></tr>
+      ${barrierRow(d.b[i])}
     </table>
     <div style="margin-top:8px">${svLink(state.segGeo.features[i].geometry.coordinates, state.clickLL)}</div>`;
 }
@@ -224,6 +267,7 @@ map.on('mouseleave', 'seg', () => { map.getCanvas().style.cursor = ''; });
 // Ranked by the "at least" multiple (lo), the number that colors the map; # is the statewide rank and stays fixed under filters.
 const PAGE = 100;
 const R = { unit: HASH.u === 'route' ? 'route' : 'seg', county: HASH.cty ?? '', q: HASH.q || '', long: HASH.long === '1',
+            bar: ['on', 'off'].includes(HASH.cl) ? HASH.cl : '',
             route: HASH.rt !== undefined && HASH.rt !== '' ? +HASH.rt : null, sort: { k: 'rank', dir: 1 }, shown: PAGE, rows: null };
 const fmtPct = (a, b) => b ? Math.round(100 * a / b) + '%' : '–';
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
@@ -237,7 +281,8 @@ function buildRows() {
   const d = state.details, rt = d.routes, sr = rankOf(d.lo), rr = rankOf(rt.lo);
   const seg = d.r.map((name, i) => { const [code, pm] = d.p[i].split(' ');
     return { i, rank: sr[i], name, county: S.counties[d.c[i]], c: d.c[i], code, pm, l: d.l[i], lo: d.lo[i], m: d.m[i], hi: d.hi[i],
-             n: d.n[i], deer: d.k[i][0], dk: d.dk[i], a: d.a[i], t: state.segGeo.features[i].properties.t }; });
+             n: d.n[i], deer: d.k[i][0], dk: d.dk[i], a: d.a[i], t: state.segGeo.features[i].properties.t,
+             b: d.b[i], bp: d.b[i] < 0 ? -1 : d.barriers.p[d.b[i]] }; });
   const route = rt.r.map((name, i) => ({ i, rank: rr[i], name, l: rt.l[i], lo: rt.lo[i], m: rt.m[i], hi: rt.hi[i], n: rt.n[i],
     deer: rt.deer[i], dk: rt.dk[i], a: rt.a[i], n10: rt.n10[i], t: tierOf(rt.lo[i], rt.hi[i]),
     segs: seg.filter(s => s.name === name).length }));
@@ -250,7 +295,8 @@ function nameMatch(name, q) {   // "299" finds SR-299 only, not SR-99; "us395" f
 }
 function rankList() {
   if (R.unit === 'route') return R.rows.route.filter(r => nameMatch(r.name, R.q) && (!R.long || r.l >= 50));
-  return R.rows.seg.filter(r => nameMatch(r.name, R.q) && (R.county === '' || r.c === +R.county));
+  return R.rows.seg.filter(r => nameMatch(r.name, R.q) && (R.county === '' || r.c === +R.county) &&
+    (!R.bar || (R.bar === 'on') === (r.b >= 0)));
 }
 const share = (a, b) => b ? a / b : -1;
 const COLS = {
@@ -264,6 +310,7 @@ const COLS = {
     { k: 'deer', t: 'Deer', num: 1, get: r => share(r.deer, r.n), show: r => fmtPct(r.deer, r.n) },
     { k: 'dk', t: 'In the dark', num: 1, wide: 1, get: r => share(r.dk, r.n), show: r => fmtPct(r.dk, r.n) },
     { k: 'a', t: 'Vehicles/day', num: 1, wide: 1, get: r => r.a, show: r => fmtInt(r.a) },
+    { k: 'bp', t: 'CDFW barrier list', wide: 1, num: 1, get: r => r.bp, show: r => r.bp < 0 ? '' : `<span class="barsw" style="background:${BAR_COLOR[r.bp]}"></span>${BAR_LABEL[r.bp]}` },
   ],
   route: [
     { k: 'rank', t: '#', num: 1, get: r => r.rank, show: r => r.rank },
@@ -283,6 +330,7 @@ function renderRank() {
   if (!R.rows) { $('#rLead').textContent = 'Loading…'; return; }
   document.querySelectorAll('#rUnit .btn').forEach(b => b.classList.toggle('on', b.dataset.u === R.unit));
   $('#rCountyL').classList.toggle('hide', R.unit === 'route');
+  $('#rBarL').classList.toggle('hide', R.unit === 'route'); $('#rBar').value = R.bar;
   $('#rLongL').classList.toggle('hide', R.unit !== 'route');
   $('#rSearch').value = R.q; $('#rCounty').value = R.county; $('#rLong').checked = R.long;
   const all = R.rows[R.unit].length;
@@ -367,7 +415,7 @@ function renderRankDetail(list) {
   if (R.unit === 'seg') {
     el.innerHTML = `<h3>${r.name} · ${esc(r.county)} County</h3><div class="muted">postmile ${r.pm} · ${r.l.toFixed(1)} mi</div>
       <div style="margin-top:6px">${chip} <b>#${fmtInt(r.rank)}</b> of ${fmtInt(rows.length)} stretches</div>${head}
-      <table>${common}</table>
+      <table>${common}${barrierRow(r.b)}</table>
       <div style="margin-top:10px"><button class="btn" id="rOnMap">Show on the map</button> <a id="rClear">back to the list</a></div>
       <div style="margin-top:8px">${svLink(state.segGeo.features[r.i].geometry.coordinates, null)}</div>`;
     $('#rOnMap').addEventListener('click', () => { setView('map'); select(r.i, true); });
@@ -420,6 +468,7 @@ document.querySelectorAll('#rUnit .btn').forEach(b => b.addEventListener('click'
 $('#rCounty').innerHTML = '<option value="">All counties</option>' +
   S.counties.map((n, i) => [n, i]).sort().map(([n, i]) => `<option value="${i}">${esc(n)}</option>`).join('');
 $('#rCounty').addEventListener('change', e => { R.county = e.target.value; R.shown = PAGE; renderRank(); });
+$('#rBar').addEventListener('change', e => { R.bar = e.target.value; R.shown = PAGE; renderRank(); });
 $('#rSearch').addEventListener('input', e => { R.q = e.target.value.trim(); R.shown = PAGE; renderRank(); });
 $('#rLong').addEventListener('change', e => { R.long = e.target.checked; R.shown = PAGE; renderRank(); });
 $('#rMore').addEventListener('click', () => { R.shown += PAGE; renderTable(rankList()); });

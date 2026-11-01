@@ -13,7 +13,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 2 30 16 16 30 2 16z' fill='%23f2c200' stroke='%23222' stroke-width='2'/%3E%3C/svg%3E">
 <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
-<link href="app.css?v=1fff72805d" rel="stylesheet">
+<link href="app.css?v=339df8e3d9" rel="stylesheet">
 </head>
 <body>
 <div id="map"></div>
@@ -27,6 +27,7 @@
   <div id="detail" class="hint">Tap a road to see its numbers.</div>
   <details class="opts" id="opts"><summary>Map options</summary>
     <div class="row"><label><input type="checkbox" id="showCrashes" checked> show each reported crash as a dot (zoom in)</label></div>
+    <div class="row"><label><input type="checkbox" id="showBarriers"> show CDFW's wildlife barrier list</label></div>
     <div class="row"><span class="lbl">Basemap</span> <span class="seg" id="basemap"></span></div>
   </details>
   <div class="foot"><a data-how="1">How it works</a> · Made by <a href="https://www.linkedin.com/in/zhihui-chen-6a8368199" target="_blank" rel="noopener">Zhihui Chen</a></div>
@@ -39,6 +40,7 @@
       <span class="seg" id="rUnit"><button class="btn on" data-u="seg">3-mile stretches</button><button class="btn" data-u="route">Whole highways</button></span>
       <label id="rCountyL">County: <select id="rCounty"></select></label>
       <label>Highway: <input type="search" id="rSearch" placeholder="e.g. 299" size="9"></label>
+      <label id="rBarL">CDFW barrier list: <select id="rBar"><option value="">any</option><option value="on">on the list</option><option value="off">not on the list</option></select></label>
       <label id="rLongL"><input type="checkbox" id="rLong"> only highways of 50+ miles</label>
     </div>
   </div>
@@ -91,6 +93,13 @@
     <p>Stretches and highways are ranked by the "at least" multiple, the same number that colors the map, so a stretch
       with two crashes and a lucky-looking rate cannot top the list. A whole highway's rate is its crashes over all the
       miles driven on it, pulled toward the typical highway; a long highway's quiet and busy parts are averaged together.</p>
+    <h2>CDFW wildlife barrier list</h2>
+    <p>The California Department of Fish and Wildlife lists stretches of road (and some canals and fences) that keep
+      wildlife from moving across the landscape, and ranks them for repair, such as building a crossing. It answers a
+      different question from this map: a fenced freeway can stop animals completely and so see few crashes, while a
+      quiet road that animals cross freely can see many. We show the list next to our numbers, not as a check of them.
+      A stretch counts as on the list when most of it lies within 200 m of a listed segment;
+      2,499 miles of state highway do.</p>
     <h2>What the map cannot tell you</h2>
     <ul>
       <li>Only police-reported crashes are here. Insurance studies suggest the real number of deer strikes is several
@@ -107,12 +116,14 @@
       <li>Crashes: California Highway Patrol, California Crash Reporting System (CCRS), data.ca.gov, public domain.</li>
       <li>Traffic volumes and highway postmiles: Caltrans Traffic Census Program 2016–2024 and Caltrans GIS
         (CC BY). Caltrans does not warrant the accuracy of these estimates and does not endorse this map.</li>
+      <li>Wildlife barriers: California Department of Fish and Wildlife, Wildlife Movement Barriers [ds2867],
+        Biogeographic Information and Observation System (BIOS), CC BY 4.0.</li>
       <li>Basemaps: OpenFreeMap, © OpenStreetMap contributors; imagery USGS The National Map (USDA NAIP).</li>
     </ul>
     <p class="fine">Data as of October 2026. Not an official product of any agency.</p>
   </div>
 </div>
-<script>window.SITE = {"tiers":[{"label":"Below average","color":"#4a90c2","dark":true,"miles":3491.299099049365},{"label":"Unclear (too little data)","color":"#c9cdd2","dark":false,"miles":6033.793595722983},{"label":"1\u00d7","color":"#fdbb84","dark":false,"miles":1916.2567435932388},{"label":"3\u00d7","color":"#fc8d59","dark":false,"miles":2054.6790560174813},{"label":"10\u00d7","color":"#d7301f","dark":true,"miles":916.4720553434},{"label":"30\u00d7","color":"#7f0000","dark":true,"miles":155.86020418381432}],"classes":[{"label":"Deer","color":"#8c510a"},{"label":"Other wild","color":"#35978f"},{"label":"Farm animal","color":"#7b3294"},{"label":"Dog or cat","color":"#2166ac"},{"label":"Not stated","color":"#777777"}],"counties":["Alameda","Alpine","Amador","Butte","Calaveras","Contra Costa","Colusa","Del Norte","El Dorado","Fresno","Glenn","Humboldt","Imperial","Inyo","Kern","Kings","Los Angeles","Lake","Lassen","Madera","Mendocino","Merced","Mono","Modoc","Monterey","Mariposa","Marin","Napa","Nevada","Orange","Placer","Plumas","Riverside","Sacramento","Santa Barbara","San Bernardino","San Benito","Santa Clara","Santa Cruz","San Diego","San Francisco","Shasta","Sierra","Siskiyou","San Joaquin","San Luis Obispo","San Mateo","Solano","Sonoma","Stanislaus","Sutter","Tehama","Trinity","Tulare","Tuolumne","Ventura","Yolo","Yuba"],"seg_mi":"3","years":"2016\u20132025","build":"1fff72805d"};</script>
-<script src="app.js?v=1fff72805d"></script>
+<script>window.SITE = {"tiers":[{"label":"Below average","color":"#4a90c2","dark":true,"miles":3491.299099049365},{"label":"Unclear (too little data)","color":"#c9cdd2","dark":false,"miles":6033.793595722983},{"label":"1\u00d7","color":"#fdbb84","dark":false,"miles":1916.2567435932388},{"label":"3\u00d7","color":"#fc8d59","dark":false,"miles":2054.6790560174813},{"label":"10\u00d7","color":"#d7301f","dark":true,"miles":916.4720553434},{"label":"30\u00d7","color":"#7f0000","dark":true,"miles":155.86020418381432}],"classes":[{"label":"Deer","color":"#8c510a"},{"label":"Other wild","color":"#35978f"},{"label":"Farm animal","color":"#7b3294"},{"label":"Dog or cat","color":"#2166ac"},{"label":"Not stated","color":"#777777"}],"counties":["Alameda","Alpine","Amador","Butte","Calaveras","Contra Costa","Colusa","Del Norte","El Dorado","Fresno","Glenn","Humboldt","Imperial","Inyo","Kern","Kings","Los Angeles","Lake","Lassen","Madera","Mendocino","Merced","Mono","Modoc","Monterey","Mariposa","Marin","Napa","Nevada","Orange","Placer","Plumas","Riverside","Sacramento","Santa Barbara","San Bernardino","San Benito","Santa Clara","Santa Cruz","San Diego","San Francisco","Shasta","Sierra","Siskiyou","San Joaquin","San Luis Obispo","San Mateo","Solano","Sonoma","Stanislaus","Sutter","Tehama","Trinity","Tulare","Tuolumne","Ventura","Yolo","Yuba"],"barrier_priority":["Remediated","Barrier","Priority Barrier","Top Priority Barrier"],"seg_mi":"3","years":"2016\u20132025","build":"339df8e3d9"};</script>
+<script src="app.js?v=339df8e3d9"></script>
 </body>
 </html>
