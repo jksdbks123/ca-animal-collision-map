@@ -1,0 +1,118 @@
+<!doctype html>
+<!-- Public page template, filled by wvc/site_build.py (double-brace fields = values from the build). Layout and look adapted
+     from the Peg Hunt Map core page (panel, phone bottom sheet, welcome card, "How it works" sheet, basemaps). -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>California Animal Collision Risk</title>
+<meta name="description" content="Which stretches of California&#x27;s state highways have the most police-reported animal crashes for every mile driven? 2016–2025, adjusted for traffic.">
+<meta property="og:title" content="California Animal Collision Risk">
+<meta property="og:description" content="Which stretches of California&#x27;s state highways have the most police-reported animal crashes for every mile driven? 2016–2025, adjusted for traffic.">
+<meta property="og:type" content="website">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 2 30 16 16 30 2 16z' fill='%23f2c200' stroke='%23222' stroke-width='2'/%3E%3C/svg%3E">
+<link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<link href="app.css?v=1fff72805d" rel="stylesheet">
+</head>
+<body>
+<div id="map"></div>
+<div id="busyChip">Loading…</div>
+<div id="panel">
+  <button id="grab" aria-label="Expand or shrink the panel"></button>
+  <h1>California Animal Collision Risk</h1>
+  <p class="sub">Reported crashes with animals on state highways, per mile driven.</p>
+  <div id="tabs"><button data-v="map" class="on">Map</button><button data-v="rank">Rankings</button></div>
+  <div id="legend"></div>
+  <div id="detail" class="hint">Tap a road to see its numbers.</div>
+  <details class="opts" id="opts"><summary>Map options</summary>
+    <div class="row"><label><input type="checkbox" id="showCrashes" checked> show each reported crash as a dot (zoom in)</label></div>
+    <div class="row"><span class="lbl">Basemap</span> <span class="seg" id="basemap"></span></div>
+  </details>
+  <div class="foot"><a data-how="1">How it works</a> · Made by <a href="https://www.linkedin.com/in/zhihui-chen-6a8368199" target="_blank" rel="noopener">Zhihui Chen</a></div>
+</div>
+<div id="rankView">
+  <div id="rHead">
+    <h1>California Animal Collision Risk</h1>
+    <span id="rTabs"><button data-v="map">Map</button><button data-v="rank" class="on">Rankings</button></span>
+    <div id="rControls">
+      <span class="seg" id="rUnit"><button class="btn on" data-u="seg">3-mile stretches</button><button class="btn" data-u="route">Whole highways</button></span>
+      <label id="rCountyL">County: <select id="rCounty"></select></label>
+      <label>Highway: <input type="search" id="rSearch" placeholder="e.g. 299" size="9"></label>
+      <label id="rLongL"><input type="checkbox" id="rLong"> only highways of 50+ miles</label>
+    </div>
+  </div>
+  <div id="rBody">
+    <div id="rLead"></div>
+    <div class="rgrid">
+      <div>
+        <div id="rScatter"></div>
+        <div class="muted" id="rScatterNote"></div>
+      </div>
+      <div id="rDetail"></div>
+    </div>
+    <div id="rTable"></div>
+    <div class="row"><button class="btn hide" id="rMore"></button></div>
+    <div class="foot"><a data-how="1">How it works</a> · Made by <a href="https://www.linkedin.com/in/zhihui-chen-6a8368199" target="_blank" rel="noopener">Zhihui Chen</a></div>
+  </div>
+</div>
+<div class="modal" id="welcome" role="dialog" aria-modal="true" aria-labelledby="wTitle">
+  <div class="card">
+    <h1 id="wTitle">California Animal Collision Risk</h1>
+    <p>Which stretches of California's state highways have the most <b>police-reported</b> crashes with animals
+      <b>for every mile you drive</b> there?</p>
+    <p>11,859 reported crashes from 2016–2025, set against how many cars use each road, so a quiet mountain road
+      is not hidden behind a busy freeway.</p>
+    <div class="row2"><button class="btn go" id="wGo">Explore the map</button> <a class="linkish" data-how="1">How it works</a></div>
+    <div class="fine">Most animal strikes are never reported to police, so the true numbers are several times higher.
+      This map is for awareness, not a guarantee of safety anywhere.</div>
+  </div>
+</div>
+<div class="modal" id="how" role="dialog" aria-modal="true" aria-labelledby="hTitle">
+  <div class="card">
+    <button class="x" aria-label="Close">×</button>
+    <h1 id="hTitle" style="font-size:18px;margin:0">How it works</h1>
+    <h2>What is counted</h2>
+    <p>Every crash a California police agency reported in 2016–2025 where a vehicle hit an animal (11,859 on
+      state highways). The officer's own words decide the animal type; the
+      <a href="data/animal_types.csv" target="_blank" rel="noopener">spelling-to-type table</a> is published.</p>
+    <h2>Animal types</h2>
+    <p>A crash's type follows the words in the police report only; we never guess a species the report does not name.</p>
+    <ul><li><b>Deer</b>: The record names deer: deer, buck, doe, fawn, mule deer, Cervidae. Elk is not counted here.</li><li><b>Other wild</b>: The record names a wild species (bear, elk, coyote, mountain lion, bighorn sheep, raccoon, fox, bobcat, any bird, and so on), or calls the animal wild or feral (wild pig, wild horse, feral burro).</li><li><b>Farm animal</b>: The record names a farm animal and does not call it wild: cow, bull, calf, horse, donkey, burro, mule, sheep, ram, goat, pig, hog, boar.</li><li><b>Dog or cat</b>: The record names a dog or a cat: dog, canine, K-9, a dog breed, cat.</li><li><b>Not stated</b>: The record leaves the animal blank, says unknown or just animal, names two animals of different types (dog or coyote, bear/deer), or describes something that is not an animal. A record naming one animal as likely (possible coyote) counts as that animal.</li></ul>
+    <h2>Per mile driven</h2>
+    <p>Each road is cut into stretches of about 3 miles. A stretch's risk is its reported crashes divided by
+      the miles all vehicles drove on it, using that year's traffic counts for every year. The statewide average is
+      0.0065 reported crashes per million vehicle-miles; colors show how many times that average a stretch is.</p>
+    <h2>Why "at least"</h2>
+    <p>A stretch with only a few crashes can look extreme by chance. Each stretch is therefore pulled toward the
+      typical value for roads with similar traffic, and the color shows the level we are 90% sure it reaches.
+      Grey means there is too little data to say whether it is above or below average; it does <b>not</b> mean safe.</p>
+    <h2>Rankings</h2>
+    <p>Stretches and highways are ranked by the "at least" multiple, the same number that colors the map, so a stretch
+      with two crashes and a lucky-looking rate cannot top the list. A whole highway's rate is its crashes over all the
+      miles driven on it, pulled toward the typical highway; a long highway's quiet and busy parts are averaged together.</p>
+    <h2>What the map cannot tell you</h2>
+    <ul>
+      <li>Only police-reported crashes are here. Insurance studies suggest the real number of deer strikes is several
+        times higher, and reporting may be lower in remote areas.</li>
+      <li>Only state highways are mapped: county and city roads have no published traffic counts.</li>
+      <li>Traffic counts are Caltrans estimates; quiet rural roads have the least precise counts.</li>
+      <li>Roads are compared with roads of similar traffic only, not with similar terrain or region.</li>
+    </ul>
+    <h2>Checks</h2>
+    <p>Risk computed from 2016–2020 predicts the crashes of 2021–2025 much better than traffic alone, and the
+      reverse also holds. In a hand check of 50 random crashes, all 50 were placed on the road named in the report.</p>
+    <h2>Data and credits</h2>
+    <ul>
+      <li>Crashes: California Highway Patrol, California Crash Reporting System (CCRS), data.ca.gov, public domain.</li>
+      <li>Traffic volumes and highway postmiles: Caltrans Traffic Census Program 2016–2024 and Caltrans GIS
+        (CC BY). Caltrans does not warrant the accuracy of these estimates and does not endorse this map.</li>
+      <li>Basemaps: OpenFreeMap, © OpenStreetMap contributors; imagery USGS The National Map (USDA NAIP).</li>
+    </ul>
+    <p class="fine">Data as of October 2026. Not an official product of any agency.</p>
+  </div>
+</div>
+<script>window.SITE = {"tiers":[{"label":"Below average","color":"#4a90c2","dark":true,"miles":3491.299099049365},{"label":"Unclear (too little data)","color":"#c9cdd2","dark":false,"miles":6033.793595722983},{"label":"1\u00d7","color":"#fdbb84","dark":false,"miles":1916.2567435932388},{"label":"3\u00d7","color":"#fc8d59","dark":false,"miles":2054.6790560174813},{"label":"10\u00d7","color":"#d7301f","dark":true,"miles":916.4720553434},{"label":"30\u00d7","color":"#7f0000","dark":true,"miles":155.86020418381432}],"classes":[{"label":"Deer","color":"#8c510a"},{"label":"Other wild","color":"#35978f"},{"label":"Farm animal","color":"#7b3294"},{"label":"Dog or cat","color":"#2166ac"},{"label":"Not stated","color":"#777777"}],"counties":["Alameda","Alpine","Amador","Butte","Calaveras","Contra Costa","Colusa","Del Norte","El Dorado","Fresno","Glenn","Humboldt","Imperial","Inyo","Kern","Kings","Los Angeles","Lake","Lassen","Madera","Mendocino","Merced","Mono","Modoc","Monterey","Mariposa","Marin","Napa","Nevada","Orange","Placer","Plumas","Riverside","Sacramento","Santa Barbara","San Bernardino","San Benito","Santa Clara","Santa Cruz","San Diego","San Francisco","Shasta","Sierra","Siskiyou","San Joaquin","San Luis Obispo","San Mateo","Solano","Sonoma","Stanislaus","Sutter","Tehama","Trinity","Tulare","Tuolumne","Ventura","Yolo","Yuba"],"seg_mi":"3","years":"2016\u20132025","build":"1fff72805d"};</script>
+<script src="app.js?v=1fff72805d"></script>
+</body>
+</html>

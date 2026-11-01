@@ -1,0 +1,111 @@
+/* Public page styles. Panel, phone bottom sheet and modals adapted from the Peg Hunt Map core page. */
+:root { --ink: #222; --muted: #666; --accent: #1e3cc8; --line: #ddd; --bg: #fff; }
+html, body { margin: 0; height: 100%; font-family: system-ui, -apple-system, sans-serif; font-size: 13px; color: var(--ink); background: #f4f4f2; }
+#map { position: absolute; inset: 0; }
+#panel { position: absolute; z-index: 10; top: 10px; left: 10px; width: 340px; max-height: calc(100% - 20px); overflow: auto;
+         background: var(--bg); border-radius: 8px; box-shadow: 0 1px 6px rgba(0,0,0,.35); padding: 12px 14px; box-sizing: border-box; }
+h1 { font-size: 17px; margin: 0 0 4px; }
+h2 { font-size: 14px; margin: 14px 0 4px; }
+.sub { color: #555; margin: 0 0 8px; line-height: 1.35; }
+.row { margin: 6px 0; }
+.row label { margin-right: 10px; }
+.lbl { color: #555; margin-right: 6px; }
+.muted { color: var(--muted); }
+.hint { background: #f3f6fb; padding: 8px 10px; border-radius: 6px; margin-top: 8px; line-height: 1.45; }
+.hide { display: none; }
+#legend { margin: 4px 0 2px; }
+.leg { display: flex; align-items: center; gap: 8px; margin: 2px 0; }
+.leg .sw { width: 26px; height: 6px; border-radius: 3px; flex: none; }
+.leg .mi { margin-left: auto; color: var(--muted); font-size: 12px; white-space: nowrap; }
+.legcap { color: var(--muted); font-size: 12px; margin: 2px 0 6px; }
+#detail h3 { font-size: 14px; margin: 0 0 4px; }
+#detail .big { font-size: 22px; font-weight: 700; line-height: 1.1; margin: 2px 0; }
+#detail table { border-collapse: collapse; width: 100%; font-size: 12px; margin-top: 4px; }
+#detail td { padding: 1px 4px 1px 0; vertical-align: top; }
+#detail td.num { text-align: right; white-space: nowrap; }
+.chip { display: inline-block; padding: 0 6px; border-radius: 8px; font-size: 11px; line-height: 16px; color: #fff; }
+.btn { font: inherit; padding: 3px 8px; border: 1px solid var(--accent); background: #fff; color: var(--accent); border-radius: 4px; cursor: pointer; }
+a.btn.sv { display: inline-block; text-decoration: none; }
+.fineprint { font-size: 11px; margin-top: 2px; }
+.btn.on { background: var(--accent); color: #fff; }
+.seg { display: inline-flex; flex-wrap: wrap; }
+.seg .btn { border-radius: 0; margin-left: -1px; padding: 2px 7px; }
+.seg .btn:first-child { border-radius: 4px 0 0 4px; margin-left: 0; }
+.seg .btn:last-child { border-radius: 0 4px 4px 0; }
+details.opts { margin-top: 8px; border-top: 1px solid var(--line); padding-top: 4px; }
+details.opts > summary { cursor: pointer; color: var(--accent); padding: 3px 0; }
+.foot { margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+.foot a, .linkish { color: var(--accent); cursor: pointer; text-decoration: underline; }
+#busyChip { display: none; position: absolute; z-index: 20; top: 12px; left: 50%; transform: translateX(-50%);
+            background: var(--accent); color: #fff; padding: 5px 14px; border-radius: 14px; box-shadow: 0 1px 4px rgba(0,0,0,.35); font-weight: 600; }
+body.busy #busyChip { display: block; }
+#grab { display: none; }
+.modal { display: none; position: fixed; inset: 0; z-index: 50; background: rgba(0,0,0,.45); align-items: center; justify-content: center; padding: 16px; }
+.modal.on { display: flex; }
+.modal .card { background: #fff; border-radius: 10px; max-width: 640px; width: 100%; max-height: calc(100% - 32px); overflow: auto; padding: 18px 22px;
+               box-shadow: 0 4px 24px rgba(0,0,0,.35); line-height: 1.5; font-size: 14px; position: relative; box-sizing: border-box; }
+.modal p, .modal li { margin: 4px 0; }
+.modal ul { padding-left: 20px; margin: 4px 0; }
+.modal a { color: var(--accent); }
+.modal .x { position: sticky; top: 0; float: right; margin: -6px -10px 0 0; width: 34px; height: 34px; border: 0; border-radius: 17px; background: #fff; font-size: 24px; line-height: 1; cursor: pointer; color: #555; z-index: 1; }
+#welcome .card { max-width: 480px; font-size: 15px; }
+#welcome h1 { font-size: 22px; margin: 0 0 8px; }
+#welcome .go { font-size: 15px; padding: 7px 16px; background: var(--accent); color: #fff; }
+#welcome .row2 { display: flex; gap: 12px; align-items: center; margin-top: 14px; flex-wrap: wrap; }
+.fine { color: #777; font-size: 12px; margin-top: 12px; }
+/* ---- rankings: a full page over the map (layout from the Peg Hunt Map city dashboard) ---- */
+#tabs { display: flex; margin: 2px 0 8px; border-bottom: 2px solid var(--accent); }
+#tabs button { flex: 1; font: inherit; padding: 5px 6px; border: 1px solid #c5cbe0; border-bottom: 0; background: #f3f6fb; cursor: pointer; border-radius: 6px 6px 0 0; }
+#tabs button.on, #rTabs button.on { background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 600; }
+#rankView { display: none; position: absolute; inset: 0; z-index: 15; background: #fff; overflow: auto; }
+body.rank #rankView { display: block; }
+body.rank #panel { display: none; }
+#rHead { position: sticky; top: 0; z-index: 2; background: #fff; border-bottom: 1px solid var(--line); padding: 8px 16px 6px; }
+#rHead h1 { display: inline-block; margin-right: 12px; }
+#rTabs { display: inline-flex; gap: 4px; vertical-align: 1px; }
+#rTabs button { font: inherit; padding: 3px 9px; border: 1px solid #c5cbe0; background: #f3f6fb; cursor: pointer; border-radius: 5px; }
+#rControls { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; }
+#rControls select, #rControls input[type=search] { font: inherit; padding: 2px 4px; }
+#rBody { padding: 10px 16px 30px; max-width: 1400px; }
+#rLead h2 { font-size: 17px; margin: 0 0 2px; }
+#rLead { margin: 0 0 8px; line-height: 1.45; }
+.rgrid { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; align-items: start; }
+#rScatter svg { display: block; width: 100%; }
+#rScatter .pt { cursor: pointer; }
+#rScatter text.lab { font-size: 11px; paint-order: stroke; stroke: #fff; stroke-width: 3px; stroke-linejoin: round; fill: #222; pointer-events: none; }
+#rDetail { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; position: sticky; top: 90px; line-height: 1.45; }
+#rDetail h3 { font-size: 15px; margin: 0 0 4px; }
+#rDetail .big { font-size: 30px; font-weight: 700; line-height: 1.1; margin: 4px 0 2px; }
+#rDetail table { border-collapse: collapse; width: 100%; margin-top: 6px; }
+#rDetail td { padding: 2px 4px 2px 0; }
+#rDetail td.num { text-align: right; white-space: nowrap; }
+#rDetail ol { margin: 4px 0; padding-left: 22px; }
+#rDetail a, #rTable a { color: var(--accent); cursor: pointer; }
+#rTable { margin-top: 14px; }
+#rTable table { border-collapse: collapse; width: 100%; }
+#rTable th, #rTable td { padding: 4px 8px 4px 0; border-bottom: 1px solid #eee; text-align: left; }
+#rTable th { position: sticky; top: 84px; background: #fff; cursor: pointer; white-space: nowrap; font-weight: 600; }
+#rTable th.sorted { color: var(--accent); }
+#rTable .num, #rTable td:nth-child(2) { text-align: right; white-space: nowrap; }
+#rTable td:nth-child(2) { text-align: left; }
+#rTable tr.row { cursor: pointer; }
+#rTable tr.row:hover { background: #f3f6fb; }
+#rTable tr.cur { background: #e6ebfa; }
+#rTable .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+@media (max-width: 900px) { .rgrid { grid-template-columns: minmax(0, 1fr); } #rDetail { position: static; } }
+@media (max-width: 700px) {
+  html, body { font-size: 14px; }
+  #panel { top: auto; bottom: 0; left: 0; right: 0; width: auto; max-height: 40vh; border-radius: 12px 12px 0 0; padding: 4px 16px 12px; }
+  #panel.full { max-height: 85vh; }
+  #grab { display: block; width: 100%; border: 0; background: none; padding: 6px 0 4px; cursor: pointer; }
+  #grab::before { content: ''; display: block; width: 40px; height: 5px; border-radius: 3px; background: #bbb; margin: 0 auto; }
+  #panel .sub { display: none; }
+  .modal { padding: 8px; }
+  .modal .card { padding: 14px 16px; }
+  .maplibregl-ctrl-bottom-right { bottom: 40vh; }
+  #rHead { position: static; padding: 8px 12px 6px; }
+  #rBody { padding: 8px 12px 24px; }
+  #rTable { overflow-x: auto; }
+  #rTable th { position: static; }
+  #rTable .wide { display: none; }
+}

@@ -1,0 +1,456 @@
+// Public map page. Data comes from window.SITE (inlined by wvc/site_build.py) and three JSON files:
+// data/segments.json (first paint), data/details.json (after first paint), data/crashes.json (first time zoomed in).
+'use strict';
+const S = window.SITE;
+const $ = q => document.querySelector(q);
+const CRASH_MINZOOM = 9;
+
+// ---------------- small helpers ----------------
+function lsGet(k) { try { return localStorage.getItem(k); } catch (_) { return null; } }
+function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (_) {} }
+function readHash() {
+  const o = {};
+  location.hash.slice(1).split('&').forEach(kv => { const i = kv.indexOf('='); if (i > 0) o[kv.slice(0, i)] = decodeURIComponent(kv.slice(i + 1)); });
+  return o;
+}
+const HASH = readHash();
+let busyN = 0;
+function busy(d) { busyN = Math.max(0, busyN + d); document.body.classList.toggle('busy', busyN > 0); }
+async function getJSON(url) {
+  busy(1);
+  try {
+    const r = await fetch(url);
+    if (!r.ok) throw new Error(`${url} answered ${r.status}`);
+    return await r.json();
+  } finally { busy(-1); }
+}
+const fmtInt = v => Math.round(v).toLocaleString('en-US');
+const fmtX = v => v >= 10 ? Math.round(v) + '×' : v >= 1 ? v.toFixed(1) + '×' : v.toFixed(2) + '×';
+const isPhone = () => window.matchMedia('(max-width: 700px)').matches;
+// Google Maps URL (no key needed): opens Google's street-level photo nearest to a point of the stretch, looking along the road.
+// The point is the spot nearest `near` (where the viewer clicked), else the middle of the stretch.
+function streetViewURL(coords, near) {
+  const k = Math.cos(coords[0][1] * Math.PI / 180);   // degrees of longitude are shorter than of latitude
+  let best = { d: Infinity, p: coords[Math.floor(coords.length / 2)], j: Math.max(0, Math.floor(coords.length / 2) - 1) };
+  if (near) for (let j = 0; j + 1 < coords.length; j++) {
+    const [a, b] = [coords[j], coords[j + 1]], dx = (b[0] - a[0]) * k, dy = b[1] - a[1];
+    const u = Math.max(0, Math.min(1, ((near[0] - a[0]) * k * dx + (near[1] - a[1]) * dy) / (dx * dx + dy * dy || 1)));
+    const p = [a[0] + u * (b[0] - a[0]), a[1] + u * (b[1] - a[1])], d = ((p[0] - near[0]) * k) ** 2 + (p[1] - near[1]) ** 2;
+    if (d < best.d) best = { d, p, j };
+  }
+  const [a, b] = [coords[best.j], coords[Math.min(best.j + 1, coords.length - 1)]];
+  const heading = Math.round((Math.atan2((b[0] - a[0]) * k, b[1] - a[1]) * 180 / Math.PI + 360) % 360);
+  return `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${best.p[1].toFixed(6)},${best.p[0].toFixed(6)}&heading=${heading}`;
+}
+const svLink = (coords, near) => `<a class="btn sv" href="${streetViewURL(coords, near)}" target="_blank" rel="noopener">See it in Google Street View ↗</a>
+  <div class="muted fineprint">Opens Google's nearest street-level photo, which may be a few years old.</div>`;
+
+// ---------------- basemaps (same set as the Peg Hunt Map) ----------------
+const OFM = 'https://tiles.openfreemap.org/styles/';
+// USGS The National Map orthoimagery (USDA NAIP, public domain; no key).
+const USGS_TILES = 'https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}';
+const BASEMAPS = {
+  light:     { label: 'Light',     style: OFM + 'positron' },
+  streets:   { label: 'Streets',   style: OFM + 'liberty' },
+  dark:      { label: 'Dark',      style: OFM + 'dark', dark: true },
+  satellite: { label: 'Satellite', style: OFM + 'liberty', dark: true, imagery: true },
+};
+async function basemapStyle(key) {
+  const b = BASEMAPS[key];
+  if (!b.imagery) return b.style;
+  const r = await fetch(b.style);
+  if (!r.ok) throw new Error(`label style answered ${r.status}`);
+  const s = await r.json();
+  s.sources.usgs = { type: 'raster', tiles: [USGS_TILES], tileSize: 256, maxzoom: 16,
+    attribution: 'Imagery <a href="https://www.usgs.gov/programs/national-geospatial-program/national-map" target="_blank">USGS The National Map</a> (USDA NAIP)' };
+  const labels = s.layers.filter(l => l.type === 'symbol' && !/poi/.test(l.id))
+    .map(l => ({ ...l, paint: { ...(l.paint || {}), 'text-color': '#ffffff', 'text-halo-color': 'rgba(0,0,0,0.85)', 'text-halo-width': 1.4 } }));
+  s.layers = [{ id: 'usgs-imagery', type: 'raster', source: 'usgs' }, ...labels];
+  return s;
+}
+
+// ---------------- state ----------------
+const state = {
+  basemap: BASEMAPS[HASH.bm] ? HASH.bm : (BASEMAPS[lsGet('wvc.basemap')] ? lsGet('wvc.basemap') : 'light'),
+  sel: HASH.s !== undefined && HASH.s !== '' ? +HASH.s : null,
+  segGeo: null, details: null, crashGeo: null, crashReq: null, view: 'map',
+};
+function saveHash() {
+  const c = map.getCenter();
+  const p = [`map=${map.getZoom().toFixed(2)}/${c.lat.toFixed(4)}/${c.lng.toFixed(4)}`, `bm=${state.basemap}`];
+  if (state.sel !== null) p.push(`s=${state.sel}`);
+  if (state.view === 'rank') {
+    p.push('v=rank');
+    if (R.unit === 'route') p.push('u=route');
+    if (R.unit === 'route' && R.route !== null) p.push(`rt=${R.route}`);
+    if (R.q) p.push(`q=${encodeURIComponent(R.q)}`);
+    if (R.county !== '' && R.unit === 'seg') p.push(`cty=${R.county}`);
+    if (R.long && R.unit === 'route') p.push('long=1');
+  }
+  history.replaceState(null, '', '#' + p.join('&'));
+}
+
+// ---------------- map ----------------
+const view = (HASH.map || '').split('/').map(Number);
+const map = new maplibregl.Map({
+  container: 'map', style: BASEMAPS[state.basemap].style, hash: false, attributionControl: false,
+  ...(view.length === 3 && view.every(v => !isNaN(v))
+    ? { zoom: view[0], center: [view[2], view[1]] }
+    : { bounds: [[-124.5, 32.5], [-114.1, 42.0]], fitBoundsOptions: { padding: 20 } }),
+});
+map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
+map.addControl(new maplibregl.AttributionControl({ compact: true,
+  customAttribution: 'Crashes: CHP CCRS · Traffic: Caltrans Traffic Census (estimates; no endorsement)' }), 'bottom-right');
+map.on('moveend', saveHash);
+// the compact credits box starts open; keep it folded on phones so it does not cover the map
+map.once('load', () => { if (isPhone()) document.querySelectorAll('.maplibregl-ctrl-attrib').forEach(e => e.classList.remove('maplibregl-compact-show')); });
+
+const tierColor = ['match', ['get', 't'], ...S.tiers.flatMap((t, i) => [i, t.color]), '#999'];
+function addLayers() {
+  if (!state.segGeo || map.getSource('seg')) return;
+  const dark = !!BASEMAPS[state.basemap].dark;
+  const before = (map.getStyle().layers.find(l => l.type === 'symbol') || {}).id;
+  map.addSource('seg', { type: 'geojson', data: state.segGeo });
+  map.addLayer({ id: 'seg-case', type: 'line', source: 'seg', layout: { 'line-cap': 'round', 'line-join': 'round' },
+    paint: { 'line-color': dark ? '#000' : '#fff', 'line-opacity': 0.8,
+             'line-width': ['interpolate', ['linear'], ['zoom'], 5, 3, 10, 7, 14, 12] } }, before);
+  map.addLayer({ id: 'seg', type: 'line', source: 'seg', layout: { 'line-cap': 'round', 'line-join': 'round' },
+    paint: { 'line-color': tierColor, 'line-width': ['interpolate', ['linear'], ['zoom'], 5, 1.6, 10, 4.5, 14, 9] } }, before);
+  map.addLayer({ id: 'seg-sel', type: 'line', source: 'seg', filter: ['==', ['id'], state.sel ?? -1],
+    layout: { 'line-cap': 'round' },
+    paint: { 'line-color': dark ? '#fff' : '#111', 'line-gap-width': ['interpolate', ['linear'], ['zoom'], 5, 2, 14, 9], 'line-width': 2.5 } });
+  if (state.crashGeo) addCrashLayer();
+}
+function addCrashLayer() {
+  if (map.getSource('crash')) return;
+  map.addSource('crash', { type: 'geojson', data: state.crashGeo });
+  map.addLayer({ id: 'crash', type: 'circle', source: 'crash', minzoom: CRASH_MINZOOM,
+    layout: { visibility: $('#showCrashes').checked ? 'visible' : 'none' },
+    paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 9, 2.2, 14, 5],
+             'circle-color': BASEMAPS[state.basemap].dark ? '#fff' : '#222',  // one neutral color: tier colors stay readable
+             'circle-stroke-color': BASEMAPS[state.basemap].dark ? '#000' : '#fff', 'circle-stroke-width': 0.8 } });
+}
+// style.load can fire before or after the segment data arrives; whichever comes second adds the layers
+let styleReady = false;
+map.on('style.load', () => { styleReady = true; addLayers(); });
+
+let basemapReq = 0;
+async function setBasemap(key) {
+  const id = ++basemapReq;
+  let style;
+  try { style = await basemapStyle(key); } catch (e) { $('#detail').textContent = `Could not load that basemap (${e.message}).`; return; }
+  if (id !== basemapReq) return;
+  state.basemap = key; lsSet('wvc.basemap', key); saveHash();
+  document.querySelectorAll('#basemap .btn').forEach(b => b.classList.toggle('on', b.dataset.k === key));
+  styleReady = false;
+  map.setStyle(style, { diff: false });
+}
+$('#basemap').innerHTML = Object.entries(BASEMAPS).map(([k, b]) => `<button class="btn${k === state.basemap ? ' on' : ''}" data-k="${k}">${b.label}</button>`).join('');
+document.querySelectorAll('#basemap .btn').forEach(b => b.addEventListener('click', () => setBasemap(b.dataset.k)));
+if (BASEMAPS[state.basemap].imagery) map.once('load', () => setBasemap(state.basemap));
+
+// ---------------- data ----------------
+function decodeSegments(js) {
+  const features = js.g.map((flat, i) => {
+    const coords = []; let x = 0, y = 0;
+    for (let j = 0; j < flat.length; j += 2) { x += flat[j]; y += flat[j + 1]; coords.push([x / 1e5, y / 1e5]); }
+    return { type: 'Feature', id: i, properties: { t: js.t[i] }, geometry: { type: 'LineString', coordinates: coords } };
+  });
+  return { type: 'FeatureCollection', features };
+}
+async function loadCrashes() {
+  if (state.crashReq) return state.crashReq;
+  state.crashReq = getJSON(`data/crashes.json?v=${S.build}`).then(js => {
+    state.crashGeo = { type: 'FeatureCollection', features: js.x.map((x, i) => ({ type: 'Feature',
+      properties: { k: js.k[i] }, geometry: { type: 'Point', coordinates: [x / 1e5, js.y[i] / 1e5] } })) };
+    if (styleReady && map.getSource('seg')) addCrashLayer();
+  }).catch(e => { state.crashReq = null; console.error(e); });
+  return state.crashReq;
+}
+function maybeCrashes() { if (map.getZoom() >= CRASH_MINZOOM - 0.5 && $('#showCrashes').checked) loadCrashes(); }
+map.on('zoomend', maybeCrashes);
+$('#showCrashes').addEventListener('change', e => {
+  if (map.getLayer('crash')) map.setLayoutProperty('crash', 'visibility', e.target.checked ? 'visible' : 'none');
+  maybeCrashes();
+});
+
+// ---------------- legend and detail ----------------
+function legend() {
+  $('#legend').innerHTML = `<div class="legcap">Reported crashes per mile driven, as a multiple of the state average, at least:</div>` +
+    S.tiers.slice().reverse().map(t => `<div class="leg"><span class="sw" style="background:${t.color}"></span>${t.label}<span class="mi">${fmtInt(t.miles)} mi</span></div>`).join('');
+}
+function select(i, fly) {
+  if (i !== state.sel && fly !== 'click') state.clickLL = null;
+  state.sel = i;
+  if (map.getLayer('seg-sel')) map.setFilter('seg-sel', ['==', ['id'], i ?? -1]);
+  saveHash();
+  renderDetail();
+  if (fly === true && i !== null && state.segGeo) {
+    const c = state.segGeo.features[i].geometry.coordinates, b = new maplibregl.LngLatBounds(c[0], c[0]);
+    c.forEach(p => b.extend(p));
+    map.fitBounds(b, { padding: isPhone() ? { top: 40, bottom: window.innerHeight * 0.45, left: 30, right: 30 } : { top: 60, bottom: 60, left: 380, right: 60 }, maxZoom: 11 });
+  }
+}
+function renderDetail() {
+  const i = state.sel, d = state.details;
+  if (i === null) { $('#detail').innerHTML = 'Tap a road to see its numbers.'; return; }
+  if (!d) { $('#detail').innerHTML = 'Loading…'; return; }
+  const t = S.tiers[state.segGeo.features[i].properties.t];
+  const k = d.k[i], kinds = S.classes.map((c, j) => k[j] ? `${c.label} ${k[j]}` : '').filter(Boolean).join(' · ');
+  $('#detail').innerHTML = `<h3>${d.r[i]} · ${d.p[i]}</h3>
+    <div><span class="chip" style="background:${t.color};color:${t.dark ? '#fff' : '#222'}">${t.label}</span></div>
+    <div class="big">${fmtX(d.m[i])}</div>
+    <div class="muted">the state average per mile driven (likely between ${fmtX(d.lo[i])} and ${fmtX(d.hi[i])})</div>
+    <table>
+      <tr><td>Reported animal crashes, ${S.years}</td><td class="num">${d.n[i]}</td></tr>
+      ${d.n[i] ? `<tr><td colspan="2" class="muted">${kinds}${d.dk[i] ? ` · ${d.dk[i]} in the dark` : ''}</td></tr>` : ''}
+      <tr><td>Vehicles per day (average)</td><td class="num">${fmtInt(d.a[i])}</td></tr>
+      <tr><td>Length</td><td class="num">${d.l[i].toFixed(1)} mi</td></tr>
+    </table>
+    <div style="margin-top:8px">${svLink(state.segGeo.features[i].geometry.coordinates, state.clickLL)}</div>`;
+}
+map.on('click', e => {
+  if (!map.getLayer('seg')) return;
+  const r = isPhone() ? 12 : 6;
+  const f = map.queryRenderedFeatures([[e.point.x - r, e.point.y - r], [e.point.x + r, e.point.y + r]], { layers: ['seg'] });
+  state.clickLL = f.length ? [e.lngLat.lng, e.lngLat.lat] : null;
+  select(f.length ? f[0].id : null, 'click');
+  if (f.length && isPhone()) $('#panel').classList.remove('full');
+});
+map.on('mouseenter', 'seg', () => { map.getCanvas().style.cursor = 'pointer'; });
+map.on('mouseleave', 'seg', () => { map.getCanvas().style.cursor = ''; });
+
+// ---------------- rankings page (layout from the Peg Hunt Map city dashboard) ----------------
+// Ranked by the "at least" multiple (lo), the number that colors the map; # is the statewide rank and stays fixed under filters.
+const PAGE = 100;
+const R = { unit: HASH.u === 'route' ? 'route' : 'seg', county: HASH.cty ?? '', q: HASH.q || '', long: HASH.long === '1',
+            route: HASH.rt !== undefined && HASH.rt !== '' ? +HASH.rt : null, sort: { k: 'rank', dir: 1 }, shown: PAGE, rows: null };
+const fmtPct = (a, b) => b ? Math.round(100 * a / b) + '%' : '–';
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+const tierOf = (lo, hi) => hi < 1 ? 0 : lo >= 30 ? 5 : lo >= 10 ? 4 : lo >= 3 ? 3 : lo >= 1 ? 2 : 1;   // same rule as the build
+function rankOf(lo) {
+  const r = new Array(lo.length);
+  lo.map((_, i) => i).sort((a, b) => lo[b] - lo[a]).forEach((i, k) => { r[i] = k + 1; });
+  return r;
+}
+function buildRows() {
+  const d = state.details, rt = d.routes, sr = rankOf(d.lo), rr = rankOf(rt.lo);
+  const seg = d.r.map((name, i) => { const [code, pm] = d.p[i].split(' ');
+    return { i, rank: sr[i], name, county: S.counties[d.c[i]], c: d.c[i], code, pm, l: d.l[i], lo: d.lo[i], m: d.m[i], hi: d.hi[i],
+             n: d.n[i], deer: d.k[i][0], dk: d.dk[i], a: d.a[i], t: state.segGeo.features[i].properties.t }; });
+  const route = rt.r.map((name, i) => ({ i, rank: rr[i], name, l: rt.l[i], lo: rt.lo[i], m: rt.m[i], hi: rt.hi[i], n: rt.n[i],
+    deer: rt.deer[i], dk: rt.dk[i], a: rt.a[i], n10: rt.n10[i], t: tierOf(rt.lo[i], rt.hi[i]),
+    segs: seg.filter(s => s.name === name).length }));
+  R.rows = { seg, route };
+}
+const norm = s => s.toUpperCase().replace(/[^A-Z0-9]/g, '');
+function nameMatch(name, q) {   // "299" finds SR-299 only, not SR-99; "us395" finds US-395
+  const n = norm(q);
+  return !n || (/^\d+[A-Z]?$/.test(n) ? name.split('-')[1] === n : norm(name) === n);
+}
+function rankList() {
+  if (R.unit === 'route') return R.rows.route.filter(r => nameMatch(r.name, R.q) && (!R.long || r.l >= 50));
+  return R.rows.seg.filter(r => nameMatch(r.name, R.q) && (R.county === '' || r.c === +R.county));
+}
+const share = (a, b) => b ? a / b : -1;
+const COLS = {
+  seg: [
+    { k: 'rank', t: '#', num: 1, get: r => r.rank, show: r => r.rank },
+    { k: 'name', t: 'Highway', get: r => r.name, show: r => `<span class="sw" style="background:${S.tiers[r.t].color}"></span>${r.name}` },
+    { k: 'where', t: 'Where', get: r => r.county + r.pm, show: r => `${esc(r.county)} <span class="muted">${r.pm}</span>` },
+    { k: 'lo', t: 'At least', num: 1, get: r => r.lo, show: r => `<b>${fmtX(r.lo)}</b>` },
+    { k: 'm', t: 'Most likely', num: 1, wide: 1, get: r => r.m, show: r => fmtX(r.m) },
+    { k: 'n', t: 'Crashes', num: 1, get: r => r.n, show: r => r.n },
+    { k: 'deer', t: 'Deer', num: 1, get: r => share(r.deer, r.n), show: r => fmtPct(r.deer, r.n) },
+    { k: 'dk', t: 'In the dark', num: 1, wide: 1, get: r => share(r.dk, r.n), show: r => fmtPct(r.dk, r.n) },
+    { k: 'a', t: 'Vehicles/day', num: 1, wide: 1, get: r => r.a, show: r => fmtInt(r.a) },
+  ],
+  route: [
+    { k: 'rank', t: '#', num: 1, get: r => r.rank, show: r => r.rank },
+    { k: 'name', t: 'Highway', get: r => r.name, show: r => `<span class="sw" style="background:${S.tiers[r.t].color}"></span>${r.name}` },
+    { k: 'l', t: 'Miles', num: 1, get: r => r.l, show: r => fmtInt(r.l) },
+    { k: 'lo', t: 'At least', num: 1, get: r => r.lo, show: r => `<b>${fmtX(r.lo)}</b>` },
+    { k: 'm', t: 'Most likely', num: 1, wide: 1, get: r => r.m, show: r => fmtX(r.m) },
+    { k: 'n', t: 'Crashes', num: 1, get: r => r.n, show: r => fmtInt(r.n) },
+    { k: 'deer', t: 'Deer', num: 1, get: r => share(r.deer, r.n), show: r => fmtPct(r.deer, r.n) },
+    { k: 'dk', t: 'In the dark', num: 1, wide: 1, get: r => share(r.dk, r.n), show: r => fmtPct(r.dk, r.n) },
+    { k: 'a', t: 'Vehicles/day', num: 1, wide: 1, get: r => r.a, show: r => fmtInt(r.a) },
+    { k: 'n10', t: `Stretches at 10×+`, num: 1, wide: 1, get: r => r.n10, show: r => r.n10 ? `${r.n10} <span class="muted">of ${r.segs}</span>` : '' },
+  ],
+};
+const curSel = () => R.unit === 'route' ? R.route : state.sel;
+function renderRank() {
+  if (!R.rows) { $('#rLead').textContent = 'Loading…'; return; }
+  document.querySelectorAll('#rUnit .btn').forEach(b => b.classList.toggle('on', b.dataset.u === R.unit));
+  $('#rCountyL').classList.toggle('hide', R.unit === 'route');
+  $('#rLongL').classList.toggle('hide', R.unit !== 'route');
+  $('#rSearch').value = R.q; $('#rCounty').value = R.county; $('#rLong').checked = R.long;
+  const all = R.rows[R.unit].length;
+  $('#rLead').innerHTML = R.unit === 'seg'
+    ? `<h2>Riskiest ${S.seg_mi}-mile stretches</h2><div class="muted">All ${fmtInt(all)} stretches of California state highway, ranked by the
+       multiple of the state average they reach <b>at least</b> (reported animal crashes per mile driven, ${S.years}). The same number colors the map.
+       <a class="linkish" data-how="1">How the numbers are made</a></div>`
+    : `<h2>Riskiest highways</h2><div class="muted">All ${all} state highways, each taken as a whole: its reported animal crashes over all the miles
+       driven on it, ${S.years}. A long highway averages its quiet and busy parts, so its riskiest stretches are higher than its whole.
+       <a class="linkish" data-how="1">How the numbers are made</a></div>`;
+  $('#rLead').querySelector('[data-how]').addEventListener('click', ev => { ev.preventDefault(); openModal('#how'); });
+  const list = rankList();
+  renderScatter(list);
+  renderRankDetail(list);
+  renderTable(list);
+  saveHash();
+}
+// scatter: traffic against risk, on fixed axes so a filtered view stays comparable with the whole state
+function renderScatter(list) {
+  const box = $('#rScatter'), W = Math.max(300, box.clientWidth || 800), H = isPhone() ? 260 : 340, m = { l: 44, r: 12, t: 10, b: 38 };
+  const rows = R.rows[R.unit], seg = R.unit === 'seg';
+  const xs = rows.map(r => Math.max(r.a, 10)), ys = rows.map(r => Math.max(r.m, 0.01));
+  const lx0 = Math.log10(Math.min(...xs)), lx1 = Math.log10(Math.max(...xs)), ly0 = Math.log10(Math.min(...ys)), ly1 = Math.log10(Math.max(...ys));
+  const X = v => m.l + (Math.log10(Math.max(v, 10)) - lx0) / (lx1 - lx0) * (W - m.l - m.r);
+  const Y = v => H - m.b - (Math.log10(Math.max(v, 0.01)) - ly0) / (ly1 - ly0) * (H - m.t - m.b);
+  const rad = r => seg ? 2.4 : 2.5 + Math.sqrt(r.l) / 3;
+  let g = '';
+  for (const t of [10, 100, 1e3, 1e4, 1e5, 1e6]) if (Math.log10(t) >= lx0 && Math.log10(t) <= lx1)
+    g += `<line x1="${X(t)}" x2="${X(t)}" y1="${m.t}" y2="${H - m.b}" stroke="#eee"/><text x="${X(t)}" y="${H - m.b + 14}" font-size="11" text-anchor="middle" fill="#666">${t >= 1e3 ? t / 1e3 + 'k' : t}</text>`;
+  for (const t of [0.01, 0.1, 1, 10, 100]) if (Math.log10(t) >= ly0 && Math.log10(t) <= ly1)
+    g += `<line x1="${m.l}" x2="${W - m.r}" y1="${Y(t)}" y2="${Y(t)}" stroke="${t === 1 ? '#999' : '#eee'}"${t === 1 ? ' stroke-dasharray="4 3"' : ''}/>` +
+         `<text x="${m.l - 6}" y="${Y(t) + 4}" font-size="11" text-anchor="end" fill="#666">${t}×</text>`;
+  g += `<text x="${(m.l + W - m.r) / 2}" y="${H - 6}" font-size="12" text-anchor="middle" fill="#333">vehicles per day (log) → busier</text>`;
+  const narrow = W < 560;
+  g += `<text transform="translate(12 ${(m.t + H - m.b) / 2}) rotate(-90)" font-size="12" text-anchor="middle" fill="#333">${narrow ? 'per mile driven' : 'crashes per mile driven, most likely (log)'} → riskier</text>`;
+  const on = new Set(list.map(r => r.i)), sel = curSel(), filtered = list.length < rows.length;
+  if (filtered) for (const r of rows) if (!on.has(r.i)) g += `<circle cx="${X(r.a)}" cy="${Y(r.m)}" r="${rad(r)}" fill="#bbb" fill-opacity=".25"/>`;
+  for (const r of list.slice().sort((a, b) => b.rank - a.rank))   // top-ranked drawn last, on top
+    g += `<circle class="pt" data-i="${r.i}" cx="${X(r.a)}" cy="${Y(r.m)}" r="${rad(r)}" fill="${S.tiers[r.t].color}" fill-opacity=".85" stroke="#fff" stroke-width=".6"/>`;
+  // labels go on top of the dots with a white halo; each takes the first free spot (right, left, above, below) or is dropped
+  const placed = [], LH = 14, ctx = document.createElement('canvas').getContext('2d');
+  ctx.font = `11px ${getComputedStyle(document.body).fontFamily}`;
+  const free = b => b.x0 >= m.l && b.x1 <= W - m.r && b.y0 >= 0 && b.y1 <= H - m.b &&
+    !placed.some(p => b.x0 < p.x1 && b.x1 > p.x0 && b.y0 < p.y1 && b.y1 > p.y0);
+  const put = (text, x, y, o, force) => {
+    const w = ctx.measureText(text).width + 6;   // + the white halo
+    for (const [ax, bx, by] of [['start', x + o, y + 4], ['end', x - o, y + 4], ['middle', x, y - o - 2], ['middle', x, y + o + 11]]) {
+      const x0 = ax === 'start' ? bx : ax === 'end' ? bx - w : bx - w / 2, b = { x0, x1: x0 + w, y0: by - LH + 3, y1: by + 3 };
+      if (force || free(b)) { placed.push(b); g += `<text class="lab" x="${bx}" y="${by}" text-anchor="${ax}">${esc(text)}</text>`; return; }
+    }
+  };
+  const label = r => seg ? `${r.name} ${r.code}` : r.name;
+  const s = sel !== null ? rows[sel] : null;
+  if (s) put(label(s), X(s.a), Y(s.m), rad(s) + 4, true);
+  put('state average', m.l + 4, Y(1) - 9, 0, true);   // just above the 1× line, at its empty low-traffic end
+  const seen = new Set(s ? [label(s)] : []);   // one label per name, or US-395 Mono piles up
+  list.slice().sort((a, b) => a.rank - b.rank).filter(r => !seen.has(label(r)) && seen.add(label(r))).slice(0, narrow ? 6 : 12)
+    .forEach(r => put(label(r), X(r.a), Y(r.m), rad(r) + 3));
+  if (s) g += `<circle cx="${X(s.a)}" cy="${Y(s.m)}" r="${rad(s) + 3}" fill="none" stroke="#000" stroke-width="2"/>`;
+  box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" height="${H}">${g}</svg>`;
+  box.querySelectorAll('.pt').forEach(c => c.addEventListener('click', () => pickRank(+c.dataset.i)));
+  $('#rScatterNote').innerHTML = `Each dot is ${seg ? 'a stretch' : 'a highway, sized by its length'}, colored as on the map. Quiet roads sit higher:
+    the animals are there whether or not the traffic is, so each car meets more of them. Click a dot for details.`;
+}
+function renderRankDetail(list) {
+  const el = $('#rDetail'), i = curSel(), rows = R.rows[R.unit];
+  if (i === null || !rows[i]) {
+    const top = list.slice().sort((a, b) => a.rank - b.rank).slice(0, 5);
+    el.innerHTML = `<h3>Top ${top.length}${list.length < rows.length ? ' in this view' : ''}</h3>` + (top.length
+      ? `<ol>${top.map(r => `<li><a data-i="${r.i}">${r.name}${r.county ? ' · ' + esc(r.county) : ''}</a>${r.pm ? ` <span class="muted">${r.pm}</span>` : ''} <b>${fmtX(r.lo)}</b></li>`).join('')}</ol>`
+      : '<div class="muted">Nothing matches.</div>') +
+      `<div class="muted">"At least" values: the level we are 90% sure each one reaches. Click a row or a dot for details.</div>`;
+    el.querySelectorAll('a[data-i]').forEach(a => a.addEventListener('click', () => pickRank(+a.dataset.i)));
+    return;
+  }
+  const r = rows[i], t = S.tiers[r.t];
+  const chip = `<span class="chip" style="background:${t.color};color:${t.dark ? '#fff' : '#222'}">${t.label}</span>`;
+  const head = `<div class="big">${fmtX(r.m)}</div><div class="muted">the state average per mile driven (likely between ${fmtX(r.lo)} and ${fmtX(r.hi)})</div>`;
+  const common = `<tr><td>Reported animal crashes, ${S.years}</td><td class="num">${fmtInt(r.n)}</td></tr>
+      <tr><td>deer</td><td class="num">${fmtPct(r.deer, r.n)}</td></tr><tr><td>in the dark</td><td class="num">${fmtPct(r.dk, r.n)}</td></tr>
+      <tr><td>Vehicles per day (average)</td><td class="num">${fmtInt(r.a)}</td></tr>`;
+  if (R.unit === 'seg') {
+    el.innerHTML = `<h3>${r.name} · ${esc(r.county)} County</h3><div class="muted">postmile ${r.pm} · ${r.l.toFixed(1)} mi</div>
+      <div style="margin-top:6px">${chip} <b>#${fmtInt(r.rank)}</b> of ${fmtInt(rows.length)} stretches</div>${head}
+      <table>${common}</table>
+      <div style="margin-top:10px"><button class="btn" id="rOnMap">Show on the map</button> <a id="rClear">back to the list</a></div>
+      <div style="margin-top:8px">${svLink(state.segGeo.features[r.i].geometry.coordinates, null)}</div>`;
+    $('#rOnMap').addEventListener('click', () => { setView('map'); select(r.i, true); });
+  } else {
+    el.innerHTML = `<h3>${r.name}</h3><div class="muted">${fmtInt(r.l)} miles of state highway, taken as a whole</div>
+      <div style="margin-top:6px">${chip} <b>#${r.rank}</b> of ${rows.length} highways</div>${head}
+      <table>${common}<tr><td>Stretches at 10× or more</td><td class="num">${r.n10} of ${r.segs}</td></tr></table>
+      <div style="margin-top:10px"><button class="btn" id="rStretches">List its stretches</button> <button class="btn" id="rOnMap">Show on the map</button>
+        <a id="rClear">back to the list</a></div>`;
+    $('#rStretches').addEventListener('click', () => { R.unit = 'seg'; R.q = r.name; R.county = ''; R.shown = PAGE; R.sort = { k: 'rank', dir: 1 }; renderRank(); });
+    $('#rOnMap').addEventListener('click', () => {
+      const b = new maplibregl.LngLatBounds();
+      R.rows.seg.forEach(s => { if (s.name === r.name) state.segGeo.features[s.i].geometry.coordinates.forEach(p => b.extend(p)); });
+      setView('map');
+      map.fitBounds(b, { padding: isPhone() ? { top: 40, bottom: window.innerHeight * 0.45, left: 30, right: 30 } : { top: 60, bottom: 60, left: 380, right: 60 } });
+    });
+  }
+  $('#rClear').addEventListener('click', () => pickRank(null));
+}
+function renderTable(list) {
+  const cols = COLS[R.unit], col = cols.find(c => c.k === R.sort.k) || cols[0];
+  const sorted = list.slice().sort((a, b) => { const va = col.get(a), vb = col.get(b); return (va < vb ? -1 : va > vb ? 1 : 0) * R.sort.dir || a.rank - b.rank; });
+  const shown = sorted.slice(0, R.shown), sel = curSel();
+  const cls = c => [c.num ? 'num' : '', c.wide ? 'wide' : ''].join(' ');
+  const head = cols.map(c => `<th data-k="${c.k}" class="${cls(c)}${c.k === col.k ? ' sorted' : ''}">${c.t}${c.k === col.k ? (R.sort.dir < 0 ? ' ▼' : ' ▲') : ''}</th>`).join('');
+  const body = shown.map(r => `<tr class="row${r.i === sel ? ' cur' : ''}" data-i="${r.i}">${cols.map(c => `<td class="${cls(c)}">${c.show(r)}</td>`).join('')}</tr>`).join('');
+  $('#rTable').innerHTML = `<table><tr>${head}</tr>${body}</table>` + (list.length ? '' : '<div class="muted">Nothing matches.</div>');
+  $('#rTable').querySelectorAll('th').forEach(th => th.addEventListener('click', () => {
+    const c = cols.find(c => c.k === th.dataset.k);
+    R.sort = R.sort.k === c.k ? { k: c.k, dir: -R.sort.dir } : { k: c.k, dir: c.k === 'rank' || !c.num ? 1 : -1 };
+    renderTable(rankList());
+  }));
+  $('#rTable').querySelectorAll('tr.row').forEach(tr => tr.addEventListener('click', () => pickRank(+tr.dataset.i)));
+  const rest = sorted.length - shown.length;
+  $('#rMore').classList.toggle('hide', rest <= 0);
+  $('#rMore').textContent = `Show ${Math.min(PAGE, rest)} more (${fmtInt(rest)} left)`;
+}
+function pickRank(i) {
+  if (R.unit === 'route') R.route = i; else select(i, false);
+  renderRank();
+  if (i !== null && window.matchMedia('(max-width: 900px)').matches) $('#rDetail').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+function setView(v) {
+  state.view = v;
+  document.body.classList.toggle('rank', v === 'rank');
+  if (v === 'rank') renderRank(); else saveHash();
+}
+document.querySelectorAll('#tabs [data-v], #rTabs [data-v]').forEach(b => b.addEventListener('click', () => setView(b.dataset.v)));
+document.querySelectorAll('#rUnit .btn').forEach(b => b.addEventListener('click', () => { R.unit = b.dataset.u; R.shown = PAGE; R.sort = { k: 'rank', dir: 1 }; renderRank(); }));
+$('#rCounty').innerHTML = '<option value="">All counties</option>' +
+  S.counties.map((n, i) => [n, i]).sort().map(([n, i]) => `<option value="${i}">${esc(n)}</option>`).join('');
+$('#rCounty').addEventListener('change', e => { R.county = e.target.value; R.shown = PAGE; renderRank(); });
+$('#rSearch').addEventListener('input', e => { R.q = e.target.value.trim(); R.shown = PAGE; renderRank(); });
+$('#rLong').addEventListener('change', e => { R.long = e.target.checked; R.shown = PAGE; renderRank(); });
+$('#rMore').addEventListener('click', () => { R.shown += PAGE; renderTable(rankList()); });
+window.addEventListener('resize', () => { if (state.view === 'rank' && R.rows) renderScatter(rankList()); });
+
+// ---------------- modals ----------------
+function openModal(id) { document.querySelectorAll('.modal').forEach(m => m.classList.toggle('on', '#' + m.id === id)); }
+function closeModals() { document.querySelectorAll('.modal.on').forEach(m => m.classList.remove('on')); lsSet('wvc.welcomed', '1'); }
+document.querySelectorAll('[data-how]').forEach(a => a.addEventListener('click', ev => { ev.preventDefault(); openModal('#how'); }));
+document.querySelectorAll('.modal').forEach(m => m.addEventListener('click', ev => { if (ev.target === m) closeModals(); }));
+document.querySelectorAll('.modal .x').forEach(b => b.addEventListener('click', closeModals));
+$('#wGo').addEventListener('click', closeModals);
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModals(); });
+$('#grab').addEventListener('click', () => $('#panel').classList.toggle('full'));
+if (lsGet('wvc.welcomed') !== '1' && HASH.intro !== '0') openModal('#welcome');
+
+// ---------------- start ----------------
+legend();
+(async () => {
+  try {
+    state.segGeo = decodeSegments(await getJSON(`data/segments.json?v=${S.build}`));
+  } catch (e) { $('#detail').textContent = `Could not load the map data (${e.message}).`; return; }
+  if (styleReady) addLayers();
+  renderDetail();
+  maybeCrashes();
+  state.details = await getJSON(`data/details.json?v=${S.build}`).catch(e => { console.error(e); return null; });
+  if (state.sel !== null && state.sel < state.segGeo.features.length) select(state.sel, !HASH.map); else state.sel = null;
+  renderDetail();
+  if (!state.details) return;
+  buildRows();
+  if (R.route !== null && !R.rows.route[R.route]) R.route = null;
+  if (state.view === 'rank') renderRank();
+})();
+if (HASH.v === 'rank') setView('rank');
