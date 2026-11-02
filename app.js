@@ -568,9 +568,87 @@ $('#rLong').addEventListener('change', e => { R.long = e.target.checked; R.shown
 $('#rMore').addEventListener('click', () => { R.shown += PAGE; renderTable(rankList()); });
 window.addEventListener('resize', () => { if (state.view === 'rank' && R.rows) renderScatter(rankList()); });
 
+// ---------------- welcome clip ----------------
+// The near miss that started this project: a 6 s dashcam clip (loaded only when the welcome card opens), my car's
+// logged speed under it, then a still with both deer circled, and a button to the stretch it happened on.
+const CLIP = S.clip;
+const vid = $('#wVideo');
+let speedW = 0, headReq = 0;
+function speedLine() {   // drawn at the box's real pixel width so the labels stay readable on phones
+  const W = speedW = $('#wSpeed').clientWidth || 560, top = 10, bot = 52, lo = 26, hi = 52;
+  const x = t => t / CLIP.dur * W, y = v => bot - (v - lo) / (hi - lo) * (bot - top);
+  let bands = '';
+  for (let i = 0; i < CLIP.t.length; i++) {
+    if (!CLIP.brake[i]) continue;
+    let j = i;
+    while (j + 1 < CLIP.t.length && CLIP.brake[j + 1]) j++;
+    bands += `<rect x="${x(CLIP.t[i])}" y="${top}" width="${x(CLIP.t[j]) - x(CLIP.t[i])}" height="${bot - top}" fill="#f6b900" opacity=".3"/>`;
+    i = j;
+  }
+  const path = CLIP.t.map((t, k) => `${k ? 'L' : 'M'}${x(t).toFixed(1)},${y(CLIP.mph[k]).toFixed(1)}`).join('');
+  const b0 = CLIP.brake.indexOf(1), kMin = CLIP.mph.indexOf(Math.min(...CLIP.mph));
+  const label = k => `<text x="${x(CLIP.t[k])}" y="${y(CLIP.mph[k]) - 6}" text-anchor="middle">${Math.round(CLIP.mph[k])} mph</text>`;
+  const tick = (t, txt) => `<line x1="${x(t)}" x2="${x(t)}" y1="${bot}" y2="${bot + 4}" stroke="#777"/>` +
+    `<text class="tick" x="${x(t)}" y="${bot + 15}" text-anchor="middle">${txt}</text>`;
+  $('#wSpeed').setAttribute('viewBox', `0 0 ${W} 70`);
+  $('#wSpeed').innerHTML = bands + `<line x1="0" x2="${W}" y1="${bot}" y2="${bot}" stroke="#ccc"/>` +
+    `<path d="${path}" fill="none" stroke="#1e3cc8" stroke-width="2"/>` + label(b0) + label(kMin) +
+    tick(CLIP.seen, 'deer on camera') + tick(CLIP.in_lane, 'in my lane') +
+    `<line id="wHead" x1="0" x2="0" y1="${top - 4}" y2="${bot}" stroke="#222" stroke-width="1.5"/>`;
+}
+function headAt(t) { const h = $('#wHead'); if (h) { const X = Math.min(t, CLIP.dur) / CLIP.dur * speedW; h.setAttribute('x1', X); h.setAttribute('x2', X); } }
+function follow() { headAt(vid.currentTime); if (!vid.paused && !vid.ended) headReq = requestAnimationFrame(follow); }
+function showStill(label) { cancelAnimationFrame(headReq); $('#wClip .freeze').hidden = false; $('#wReplay').textContent = label; headAt(CLIP.still); }
+function playClip() {
+  $('#wClip .freeze').hidden = true;
+  if (!vid.getAttribute('src')) vid.src = `media/clip.mp4?v=${S.build}`;
+  vid.currentTime = 0;
+  Promise.resolve(vid.play()).then(() => { cancelAnimationFrame(headReq); follow(); })
+    .catch(() => showStill('▶ Play'));   // autoplay refused (e.g. iPhone low-power mode): still + button
+}
+function startClip() {
+  speedLine();
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) showStill('▶ Play'); else playClip();
+}
+if (CLIP) {
+  $('#wClip').hidden = $('#wWhere').hidden = false;
+  $('#welcome .card').classList.add('clip');
+  $('#wStill').src = `media/still.jpg?v=${S.build}`;
+  $('#wClip .freeze').insertAdjacentHTML('beforeend', CLIP.deer.map(([x, y, r]) =>
+    `<div class="ring" style="left:${x}%;top:${y}%;width:${2 * r}%"></div>`).join(''));
+  const b0 = CLIP.brake.indexOf(1), vMin = Math.min(...CLIP.mph);
+  // Speed goes public (PI, 2026-11-01).
+  // Facts in the story (time, place, "missed it", 2.3 s) confirmed by PI 2026-11-01.
+  $('#wStory').innerHTML = `<b>Oct 24, 2026, 10:35 pm, CA-299 in Trinity County.</b> A deer stepped into my lane
+    ${(CLIP.in_lane - CLIP.seen).toFixed(1)} seconds after it first showed up on my car's camera, and a second one stood
+    on the shoulder. I braked from
+    ${Math.round(CLIP.mph[b0])} to ${Math.round(vMin)} mph and missed it. That ${S.seg_mi}-mile stretch has ${CLIP.n} police-reported
+    animal crashes from ${S.years}, at least ${CLIP.lo}× the state average per mile driven.`;
+  vid.addEventListener('ended', () => showStill('↻ Replay'));
+  $('#wReplay').addEventListener('click', playClip);
+  $('#wWhere').addEventListener('click', () => {
+    closeModals();
+    if (state.view === 'rank') setView('map');
+    if (state.segGeo) select(CLIP.seg, true); else state.sel = CLIP.seg;   // not loaded yet: the start-up code flies there
+  });
+  window.addEventListener('resize', () => { if ($('#welcome').classList.contains('on')) speedLine(); });
+  // where the deer was in my lane (my car's GPS, ~10 m); tapping it plays the clip again
+  const pin = document.createElement('button');
+  pin.id = 'nearMiss'; pin.title = 'My near miss, Oct 24, 2026: tap to watch';
+  pin.setAttribute('aria-label', pin.title);
+  pin.addEventListener('click', ev => { ev.stopPropagation(); openModal('#welcome'); });
+  new maplibregl.Marker({ element: pin }).setLngLat(CLIP.where).addTo(map);
+}
+
 // ---------------- modals ----------------
-function openModal(id) { document.querySelectorAll('.modal').forEach(m => m.classList.toggle('on', '#' + m.id === id)); }
-function closeModals() { document.querySelectorAll('.modal.on').forEach(m => m.classList.remove('on')); lsSet('wvc.welcomed', '1'); }
+function openModal(id) {
+  document.querySelectorAll('.modal').forEach(m => m.classList.toggle('on', '#' + m.id === id));
+  if (id === '#welcome' && CLIP) startClip();
+}
+function closeModals() {
+  document.querySelectorAll('.modal.on').forEach(m => m.classList.remove('on')); lsSet('wvc.welcomed', '1');
+  if (CLIP) { vid.pause(); cancelAnimationFrame(headReq); }
+}
 document.querySelectorAll('[data-how]').forEach(a => a.addEventListener('click', ev => { ev.preventDefault(); openModal('#how'); }));
 document.querySelectorAll('.modal').forEach(m => m.addEventListener('click', ev => { if (ev.target === m) closeModals(); }));
 document.querySelectorAll('.modal .x').forEach(b => b.addEventListener('click', closeModals));
