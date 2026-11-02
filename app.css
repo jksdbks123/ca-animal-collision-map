@@ -26,6 +26,25 @@ h2 { font-size: 14px; margin: 14px 0 4px; }
 .chip { display: inline-block; padding: 0 6px; border-radius: 8px; font-size: 11px; line-height: 16px; color: #fff; }
 .btn { font: inherit; padding: 3px 8px; border: 1px solid var(--accent); background: #fff; color: var(--accent); border-radius: 4px; cursor: pointer; }
 a.btn.sv { display: inline-block; text-decoration: none; }
+/* Street View figure: drag from the map corner, drop on a road */
+#peg { display: flex; align-items: center; justify-content: center; cursor: grab; touch-action: none; }
+#peg svg { width: 14px; height: 22px; }
+body.pegdrag, body.pegdrag * { cursor: grabbing !important; user-select: none; }
+body.pegdrag #peg svg { opacity: .25; }
+#pegGhost { display: none; position: fixed; left: 0; top: 0; z-index: 40; pointer-events: none; width: 24px; height: 38px; margin: -38px 0 0 -12px; }
+#pegGhost svg { width: 100%; height: 100%; filter: drop-shadow(0 2px 2px rgba(0,0,0,.4)); }
+body.pegdrag #pegGhost { display: block; }
+body.pegout #pegGhost { opacity: .45; }
+#pegDot { display: none; position: fixed; left: 0; top: 0; z-index: 39; pointer-events: none; width: 12px; height: 12px; margin: -8px 0 0 -8px;
+          border-radius: 50%; background: #f6b900; border: 2px solid #fff; box-shadow: 0 0 0 1px #8a6500; }
+body.pegdrag #pegDot.on { display: block; }
+#pegHint { display: none; position: fixed; z-index: 40; top: 12px; left: 50%; transform: translateX(-50%); pointer-events: none; width: max-content; max-width: calc(100vw - 32px); text-align: center; box-sizing: border-box;
+           background: #222; color: #fff; padding: 5px 14px; border-radius: 14px; box-shadow: 0 1px 4px rgba(0,0,0,.35); }
+body.pegdrag #pegHint { display: block; }
+#pegTip { display: none; position: fixed; z-index: 40; width: 216px; box-sizing: border-box; background: #fff; padding: 7px 10px; border-radius: 6px;
+          box-shadow: 0 1px 6px rgba(0,0,0,.35); line-height: 1.4; }
+#pegTip.on { display: block; }
+#pegTip a { color: var(--accent); font-weight: 600; }
 .fineprint { font-size: 11px; margin-top: 2px; }
 .btn.on { background: var(--accent); color: #fff; }
 .seg { display: inline-flex; flex-wrap: wrap; }

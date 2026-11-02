@@ -27,9 +27,8 @@ async function getJSON(url) {
 const fmtInt = v => Math.round(v).toLocaleString('en-US');
 const fmtX = v => v >= 10 ? Math.round(v) + '×' : v >= 1 ? v.toFixed(1) + '×' : v.toFixed(2) + '×';
 const isPhone = () => window.matchMedia('(max-width: 700px)').matches;
-// Google Maps URL (no key needed): opens Google's street-level photo nearest to a point of the stretch, looking along the road.
-// The point is the spot nearest `near` (where the viewer clicked), else the middle of the stretch.
-function streetViewURL(coords, near) {
+// The spot of a road line nearest `near` ([lng, lat]), else its middle, and the road's compass heading there.
+function nearestOnLine(coords, near) {
   const k = Math.cos(coords[0][1] * Math.PI / 180);   // degrees of longitude are shorter than of latitude
   let best = { d: Infinity, p: coords[Math.floor(coords.length / 2)], j: Math.max(0, Math.floor(coords.length / 2) - 1) };
   if (near) for (let j = 0; j + 1 < coords.length; j++) {
@@ -39,9 +38,13 @@ function streetViewURL(coords, near) {
     if (d < best.d) best = { d, p, j };
   }
   const [a, b] = [coords[best.j], coords[Math.min(best.j + 1, coords.length - 1)]];
-  const heading = Math.round((Math.atan2((b[0] - a[0]) * k, b[1] - a[1]) * 180 / Math.PI + 360) % 360);
-  return `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${best.p[1].toFixed(6)},${best.p[0].toFixed(6)}&heading=${heading}`;
+  return { p: best.p, d: best.d, heading: Math.round((Math.atan2((b[0] - a[0]) * k, b[1] - a[1]) * 180 / Math.PI + 360) % 360) };
 }
+// Google Maps URL (no key needed): opens Google's street-level photo nearest to the point, looking along `heading` if given.
+const panoURL = (p, heading) => `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${p[1].toFixed(6)},${p[0].toFixed(6)}` +
+  (heading == null ? '' : `&heading=${heading}`);
+// The point is the spot of the stretch nearest `near` (where the viewer clicked), else its middle.
+function streetViewURL(coords, near) { const r = nearestOnLine(coords, near); return panoURL(r.p, r.heading); }
 const svLink = (coords, near) => `<a class="btn sv" href="${streetViewURL(coords, near)}" target="_blank" rel="noopener">See it in Google Street View ↗</a>
   <div class="muted fineprint">Opens Google's nearest street-level photo, which may be a few years old.</div>`;
 
@@ -262,6 +265,97 @@ map.on('click', e => {
 });
 map.on('mouseenter', 'seg', () => { map.getCanvas().style.cursor = 'pointer'; });
 map.on('mouseleave', 'seg', () => { map.getCanvas().style.cursor = ''; });
+
+// ---------------- Street View figure ----------------
+// Drag the yellow figure from the map's corner and drop it: Google Maps opens a new tab at the nearest street-level photo.
+// A drop within SNAP_PX of a highway on the map lands on that road, looking along it; anywhere else opens at the drop point.
+const SNAP_PX = 24;
+const PEG_SVG = `<svg viewBox="0 0 20 32" aria-hidden="true"><g fill="#f6b900" stroke="#8a6500" stroke-width="1.2" stroke-linejoin="round">
+  <circle cx="10" cy="5.5" r="4.3"/><path d="M4.5 12.5a3 3 0 0 1 3-3h5a3 3 0 0 1 3 3V20h-2.2v10.5H6.7V20H4.5z"/></g></svg>`;
+class PegControl {
+  onAdd() {
+    const box = document.createElement('div');
+    box.className = 'maplibregl-ctrl maplibregl-ctrl-group';
+    box.innerHTML = `<button type="button" id="peg" title="Drag onto a road to see it in Google Street View" aria-label="Street View: drag onto a road">${PEG_SVG}</button>`;
+    return box;
+  }
+  onRemove() {}
+}
+map.addControl(new PegControl(), 'top-right');
+document.body.insertAdjacentHTML('beforeend',
+  `<div id="pegGhost">${PEG_SVG}</div><div id="pegDot"></div><div id="pegHint"></div><div id="pegTip"></div>`);
+
+function pegSnap(pt) {   // pt: pixel on the map; the nearest highway spot within SNAP_PX, or null
+  if (!map.getLayer('seg')) return null;
+  const f = map.queryRenderedFeatures([[pt.x - SNAP_PX, pt.y - SNAP_PX], [pt.x + SNAP_PX, pt.y + SNAP_PX]], { layers: ['seg'] });
+  const ll = map.unproject(pt), near = [ll.lng, ll.lat];
+  let best = null;
+  for (const id of new Set(f.map(x => x.id))) {
+    const r = nearestOnLine(state.segGeo.features[id].geometry.coordinates, near);
+    if (!best || r.d < best.d) best = r;
+  }
+  if (!best) return null;
+  const q = map.project(best.p);
+  return Math.hypot(q.x - pt.x, q.y - pt.y) <= SNAP_PX ? best : null;
+}
+function pegTip(html, x, y) {   // small bubble at a screen point; closes on the next click elsewhere
+  const t = $('#pegTip');
+  t.innerHTML = html;
+  t.style.left = Math.max(8, Math.min(x, window.innerWidth - 228)) + 'px';
+  t.style.top = Math.max(8, y) + 'px';
+  t.classList.add('on');
+}
+document.addEventListener('pointerdown', e => { if (!e.target.closest('#pegTip, #peg')) $('#pegTip').classList.remove('on'); });
+
+function pegHowTo() {
+  const b = $('#peg').getBoundingClientRect();
+  pegTip('Drag me onto a road to see it in Google Street View.', b.left - 224, b.bottom + 6);
+}
+const peg = { on: false };
+function pegMove(e) {
+  if (!peg.on) return;
+  if (!peg.moved && Math.hypot(e.clientX - peg.x0, e.clientY - peg.y0) < 4) return;
+  peg.moved = true;
+  document.body.classList.add('pegdrag');
+  $('#pegTip').classList.remove('on');
+  const x = e.clientX, y = e.clientY - (e.pointerType === 'touch' ? 44 : 0);   // on phones the drop spot sits above the finger
+  $('#pegGhost').style.transform = `translate(${x}px, ${y}px)`;
+  const el = document.elementFromPoint(x, y), r = map.getContainer().getBoundingClientRect();
+  const pt = new maplibregl.Point(x - r.left, y - r.top);
+  if (!el || !map.getCanvasContainer().contains(el)) peg.at = null;   // over the panel, a control or off the map
+  else { const ll = map.unproject(pt); peg.at = pegSnap(pt) || { p: [ll.lng, ll.lat], heading: null, free: true }; }
+  const dot = $('#pegDot');
+  dot.classList.toggle('on', !!peg.at && !peg.at.free);
+  if (peg.at && !peg.at.free) { const q = map.project(peg.at.p); dot.style.transform = `translate(${r.left + q.x}px, ${r.top + q.y}px)`; }
+  document.body.classList.toggle('pegout', !peg.at);
+  $('#pegHint').textContent = !peg.at ? 'Release here to cancel' : peg.at.free ? 'Drop on a highway to land on the road · Esc to cancel'
+    : 'Release to open Google Street View · Esc to cancel';
+}
+function pegEnd(e, drop) {
+  if (!peg.on) return;
+  peg.on = false;
+  document.body.classList.remove('pegdrag', 'pegout');
+  $('#pegDot').classList.remove('on');
+  if (!peg.moved) { if (drop) pegHowTo(); return; }
+  if (!drop || !peg.at) return;
+  const url = panoURL(peg.at.p, peg.at.heading), w = window.open(url, '_blank');
+  if (w) { w.opener = null; return; }
+  // the browser blocked the new tab (e.g. a very long drag): offer the link where the figure was dropped
+  pegTip(`<a href="${url}" target="_blank" rel="noopener">Open Google Street View here ↗</a>`, e.clientX - 100, e.clientY + 8);
+}
+const pegBtn = $('#peg');
+pegBtn.addEventListener('pointerdown', e => {
+  if (e.button !== 0) return;
+  e.preventDefault();
+  pegBtn.setPointerCapture(e.pointerId);
+  Object.assign(peg, { on: true, moved: false, x0: e.clientX, y0: e.clientY, at: null });
+});
+pegBtn.addEventListener('pointermove', pegMove);
+pegBtn.addEventListener('pointerup', e => pegEnd(e, true));
+pegBtn.addEventListener('pointercancel', e => pegEnd(e, false));
+pegBtn.addEventListener('lostpointercapture', e => pegEnd(e, false));
+pegBtn.addEventListener('click', e => { if (e.detail === 0) pegHowTo(); });   // keyboard press: explain how it works
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && peg.on) { peg.at = null; pegEnd(e, false); } });
 
 // ---------------- rankings page (layout from the Peg Hunt Map city dashboard) ----------------
 // Ranked by the "at least" multiple (lo), the number that colors the map; # is the statewide rank and stays fixed under filters.
