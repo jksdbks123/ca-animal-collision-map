@@ -159,48 +159,58 @@ function barrierRow(bi) {   // the CDFW listing of a stretch, for both detail bo
     `${b.u[bi] ? ` · <a href="${esc(b.u[bi])}" target="_blank" rel="noopener">CDFW summary</a>` : ''}` +
     `<div class="muted">A list of roads animals struggle to cross, not of crash sites.</div></td></tr>`;
 }
-// By-month chart for a stretch or a whole highway. codes: one per crash, month * 5 + animal class (wvc/site_build.py).
+// By-month chart for a stretch or a whole highway. codes: one per crash, (month * 5 + animal class) * 3 + light (wvc/site_build.py).
 // Counts only: traffic counts are yearly averages, so this cannot be put per mile driven month by month.
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const MONTH_MIN = 10;   // fewer crashes than this: say the pattern is too thin to read
 // busiest two months in a row (Dec–Jan counts): [first month index, crashes in the two]
 const busiest2 = tot => MONTHS.map((_, j) => [j, tot[j] + tot[(j + 1) % 12]]).sort((a, b) => b[1] - a[1])[0];
 // Overview in the map panel while no road is picked: crashes by month, one small chart per animal type, each on its own
-// scale so the flat ones show their shape. All of California from the page's own numbers; a county from details.json.
+// scale so the flat ones show their shape, each bar split by light. All of California from the page's own numbers; a county
+// from details.json. Counts: [class][month][light], light 0 daylight, 1 dusk or dawn, 2 dark.
+const LIGHT = ['daylight', 'dusk or dawn', 'dark'], LIGHT_OP = [.3, .6, 1];
+const STACK = [2, 1, 0];   // drawn from the bottom: dark first, so the night share reads off the baseline
 function overviewCounts() {
   if (state.mcty === '') return S.month_by_class;
-  const d = state.details, K = S.classes.length, m = S.classes.map(() => MONTHS.map(() => 0));
+  const d = state.details, K = S.classes.length, m = S.classes.map(() => MONTHS.map(() => [0, 0, 0]));
   if (!d) return null;
-  d.c.forEach((c, i) => { if (c === +state.mcty) d.mo[i].forEach(code => m[code % K][Math.floor(code / K)]++); });
+  d.c.forEach((c, i) => { if (c === +state.mcty) d.mo[i].forEach(code => {
+    const l = code % 3, c0 = Math.floor(code / 3); m[c0 % K][Math.floor(c0 / K)][l]++; }); });
   return m;
 }
+const sum = a => a.reduce((x, y) => x + y, 0);
 function renderOverview() {
   const el = $('#overview'); if (!el) return;
   const counts = overviewCounts(), W = 180, top = 6, base = 62, bw = W / 12;
   if (!counts) { el.querySelector('.minis').innerHTML = 'Loading…'; return; }
-  const all = counts.flat().reduce((a, b) => a + b, 0);
+  const all = sum(counts.flat().map(sum)), dark = sum(counts.flat().map(v => v[2]));
   el.querySelector('.minis').innerHTML = S.classes.map((c, k) => {
-    const tot = counts[k], n = tot.reduce((a, b) => a + b, 0), ymax = Math.max(...tot, 1);
+    const tot = counts[k].map(sum), n = sum(tot), nd = sum(counts[k].map(v => v[2])), ymax = Math.max(...tot, 1);
     if (!n) return `<div class="mini"><div class="mh">${c.label} <span class="muted">0</span></div></div>`;
     const y = v => base - v / ymax * (base - top), two = busiest2(tot), j = two[0];
-    const bars = tot.map((v, i) => `<g><title>${MONTHS[i]}: ${fmtInt(v)} ${c.label.toLowerCase()} crashes</title>` +
-      `<rect x="${i * bw + 1.5}" y="${y(v)}" width="${bw - 3}" height="${base - y(v)}" fill="${c.color}"/>` +
-      `<rect x="${i * bw}" y="${top}" width="${bw}" height="${base - top}" fill="transparent"/>` +
-      `<text x="${(i + .5) * bw}" y="${base + 10}">${i + 1}</text></g>`).join('');
+    const bars = counts[k].map((v, i) => {
+      let h0 = 0;
+      const parts = STACK.map(l => { if (!v[l]) return ''; const y1 = y(h0 + v[l]), y0 = y(h0); h0 += v[l];
+        return `<rect x="${i * bw + 1.5}" y="${y1}" width="${bw - 3}" height="${y0 - y1}" fill="${c.color}" fill-opacity="${LIGHT_OP[l]}"/>`; }).join('');
+      return `<g><title>${MONTHS[i]}: ${fmtInt(tot[i])} ${c.label.toLowerCase()} crashes (${STACK.map(l => `${LIGHT[l]} ${fmtInt(v[l])}`).join(', ')})</title>` +
+        parts + `<rect x="${i * bw}" y="${top}" width="${bw}" height="${base - top}" fill="transparent"/>` +
+        `<text x="${(i + .5) * bw}" y="${base + 10}">${i + 1}</text></g>`;
+    }).join('');
     return `<div class="mini"><div class="mh">${c.label} <span class="muted">${fmtInt(n)}</span></div>
       <svg viewBox="0 0 ${W} ${base + 13}" role="img" aria-label="${c.label} crashes by month">${bars}
         <line x1="0" x2="${W}" y1="${y(n / 12)}" y2="${y(n / 12)}" class="even"/>
         <line x1="0" x2="${W}" y1="${base + .5}" y2="${base + .5}" class="axis"/></svg>
-      <div class="muted">${n < MONTH_MIN ? 'Too few to read' : `Busiest: ${MONTHS[j]}–${MONTHS[(j + 1) % 12]}, ${fmtPct(two[1], n)}`}</div></div>`;
+      <div class="muted">In the dark: <b>${fmtPct(nd, n)}</b><br>${n < MONTH_MIN ? 'Too few to read' : `Busiest: ${MONTHS[j]}–${MONTHS[(j + 1) % 12]}, ${fmtPct(two[1], n)}`}</div></div>`;
   }).join('');
-  el.querySelector('.tot').textContent = `${fmtInt(all)} reported crashes, ${S.years}`;
+  el.querySelector('.tot').innerHTML = `${fmtInt(all)} reported crashes, ${S.years} · <b>${fmtPct(dark, all)} in the dark</b>`;
 }
 function overviewHTML() {
   const opts = S.counties.map((n, i) => `<option value="${i}"${String(i) === state.mcty ? ' selected' : ''}>${esc(n)} County</option>`).join('');
   return `<div id="overview"><div class="oh">Crashes by month in <select id="mCounty" aria-label="Area">
       <option value="">all of California</option>${opts}</select></div>
     <div class="muted tot"></div><div class="minis"></div>
-    <div class="muted">One chart per animal type, each on its own scale. Dashed line: the same crashes spread evenly over the
+    <div class="muted">One chart per animal type, each on its own scale. Each bar from the bottom: in the dark (solid), dusk or
+      dawn, daylight (palest), as the police report records the light. Dashed line: the same crashes spread evenly over the
       year. "Busiest": the two months in a row with the most crashes (an even spread would give 17%). Counts only: traffic
       also changes with the season.</div></div>`;
 }
@@ -208,7 +218,7 @@ function monthChart(codes) {
   const n = codes.length, K = S.classes.length;
   if (!n) return '';
   const m = MONTHS.map(() => S.classes.map(() => 0));
-  codes.forEach(c => m[Math.floor(c / K)][c % K]++);
+  codes.forEach(c => { c = Math.floor(c / 3); m[Math.floor(c / K)][c % K]++; });   // drop the light part of the code
   const tot = m.map(r => r.reduce((a, b) => a + b, 0)), exp = S.month_share.map(p => p * n);
   const W = 300, top = 12, base = 80, bw = W / 12, ymax = Math.max(...tot, ...exp, 1);
   const y = v => base - v / ymax * (base - top);
