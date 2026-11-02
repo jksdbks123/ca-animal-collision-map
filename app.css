@@ -65,6 +65,9 @@ body.busy #busyChip { display: block; }
                box-shadow: 0 4px 24px rgba(0,0,0,.35); line-height: 1.5; font-size: 14px; position: relative; box-sizing: border-box; }
 .modal p, .modal li { margin: 4px 0; }
 .modal ul { padding-left: 20px; margin: 4px 0; }
+.modal .tbl { border-collapse: collapse; width: 100%; font-size: 13px; margin: 6px 0; }
+.modal .tbl th, .modal .tbl td { text-align: left; padding: 3px 6px; border-bottom: 1px solid #e5e5e5; vertical-align: top; }
+.modal .tbl th { font-weight: 600; color: #555; }
 .modal a { color: var(--accent); }
 .modal .x { position: sticky; top: 0; float: right; margin: -6px -10px 0 0; width: 34px; height: 34px; border: 0; border-radius: 17px; background: #fff; font-size: 24px; line-height: 1; cursor: pointer; color: #555; z-index: 1; }
 #welcome .card { max-width: 480px; font-size: 15px; }

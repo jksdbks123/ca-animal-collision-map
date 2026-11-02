@@ -240,6 +240,9 @@ function renderDetail() {
   const i = state.sel, d = state.details;
   if (i === null) { $('#detail').innerHTML = 'Tap a road to see its numbers.'; return; }
   if (!d) { $('#detail').innerHTML = 'Loading…'; return; }
+  // Big number = m, the best estimate ("about N x"). Color chip and "likely between" = lo..hi, the 80% range
+  // (wvc/risk.py q10, q90). On a quiet road with no crash, m is mostly its traffic group's typical rate, so a grey
+  // stretch can show a large m: the color, not m, says whether the stretch itself is known to be high.
   const t = S.tiers[state.segGeo.features[i].properties.t];
   const k = d.k[i], kinds = S.classes.map((c, j) => k[j] ? `${c.label} ${k[j]}` : '').filter(Boolean).join(' · ');
   $('#detail').innerHTML = `<h3>${d.r[i]} · ${d.p[i]}</h3>
@@ -365,7 +368,8 @@ const R = { unit: HASH.u === 'route' ? 'route' : 'seg', county: HASH.cty ?? '', 
             route: HASH.rt !== undefined && HASH.rt !== '' ? +HASH.rt : null, sort: { k: 'rank', dir: 1 }, shown: PAGE, rows: null };
 const fmtPct = (a, b) => b ? Math.round(100 * a / b) + '%' : '–';
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
-const tierOf = (lo, hi) => hi < 1 ? 0 : lo >= 30 ? 5 : lo >= 10 ? 4 : lo >= 3 ? 3 : lo >= 1 ? 2 : 1;   // same rule as the build
+// same rule as the build (wvc/site_build.py tier_codes): 0 below = hi < 1; 1 unclear = range straddles 1x; 2-5 = lo >= 1, 3, 10, 30
+const tierOf = (lo, hi) => hi < 1 ? 0 : lo >= 30 ? 5 : lo >= 10 ? 4 : lo >= 3 ? 3 : lo >= 1 ? 2 : 1;
 function rankOf(lo) {
   const r = new Array(lo.length);
   lo.map((_, i) => i).sort((a, b) => lo[b] - lo[a]).forEach((i, k) => { r[i] = k + 1; });
