@@ -77,11 +77,13 @@ const state = {
   basemap: BASEMAPS[HASH.bm] ? HASH.bm : (BASEMAPS[lsGet('wvc.basemap')] ? lsGet('wvc.basemap') : 'light'),
   sel: HASH.s !== undefined && HASH.s !== '' ? +HASH.s : null,
   segGeo: null, details: null, crashGeo: null, crashReq: null, view: 'map',
+  mcty: S.counties[HASH.mc] ? HASH.mc : '',   // county index of the month overview, '' = all of California
 };
 function saveHash() {
   const c = map.getCenter();
   const p = [`map=${map.getZoom().toFixed(2)}/${c.lat.toFixed(4)}/${c.lng.toFixed(4)}`, `bm=${state.basemap}`];
   if (state.sel !== null) p.push(`s=${state.sel}`);
+  if (state.mcty !== '') p.push(`mc=${state.mcty}`);
   if ($('#showBarriers').checked) p.push('bl=1');
   if (state.view === 'rank') {
     p.push('v=rank');
@@ -156,6 +158,81 @@ function barrierRow(bi) {   // the CDFW listing of a stretch, for both detail bo
     ` (${BAR_LABEL[b.p[bi]].toLowerCase()}): ${esc(b.nm[bi])}${b.sp[bi] ? ` · for ${esc(b.sp[bi])}` : ''}` +
     `${b.u[bi] ? ` · <a href="${esc(b.u[bi])}" target="_blank" rel="noopener">CDFW summary</a>` : ''}` +
     `<div class="muted">A list of roads animals struggle to cross, not of crash sites.</div></td></tr>`;
+}
+// By-month chart for a stretch or a whole highway. codes: one per crash, month * 5 + animal class (wvc/site_build.py).
+// Counts only: traffic counts are yearly averages, so this cannot be put per mile driven month by month.
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const MONTH_MIN = 10;   // fewer crashes than this: say the pattern is too thin to read
+// busiest two months in a row (Dec–Jan counts): [first month index, crashes in the two]
+const busiest2 = tot => MONTHS.map((_, j) => [j, tot[j] + tot[(j + 1) % 12]]).sort((a, b) => b[1] - a[1])[0];
+// Overview in the map panel while no road is picked: crashes by month, one small chart per animal type, each on its own
+// scale so the flat ones show their shape. All of California from the page's own numbers; a county from details.json.
+function overviewCounts() {
+  if (state.mcty === '') return S.month_by_class;
+  const d = state.details, K = S.classes.length, m = S.classes.map(() => MONTHS.map(() => 0));
+  if (!d) return null;
+  d.c.forEach((c, i) => { if (c === +state.mcty) d.mo[i].forEach(code => m[code % K][Math.floor(code / K)]++); });
+  return m;
+}
+function renderOverview() {
+  const el = $('#overview'); if (!el) return;
+  const counts = overviewCounts(), W = 180, top = 6, base = 62, bw = W / 12;
+  if (!counts) { el.querySelector('.minis').innerHTML = 'Loading…'; return; }
+  const all = counts.flat().reduce((a, b) => a + b, 0);
+  el.querySelector('.minis').innerHTML = S.classes.map((c, k) => {
+    const tot = counts[k], n = tot.reduce((a, b) => a + b, 0), ymax = Math.max(...tot, 1);
+    if (!n) return `<div class="mini"><div class="mh">${c.label} <span class="muted">0</span></div></div>`;
+    const y = v => base - v / ymax * (base - top), two = busiest2(tot), j = two[0];
+    const bars = tot.map((v, i) => `<g><title>${MONTHS[i]}: ${fmtInt(v)} ${c.label.toLowerCase()} crashes</title>` +
+      `<rect x="${i * bw + 1.5}" y="${y(v)}" width="${bw - 3}" height="${base - y(v)}" fill="${c.color}"/>` +
+      `<rect x="${i * bw}" y="${top}" width="${bw}" height="${base - top}" fill="transparent"/>` +
+      `<text x="${(i + .5) * bw}" y="${base + 10}">${i + 1}</text></g>`).join('');
+    return `<div class="mini"><div class="mh">${c.label} <span class="muted">${fmtInt(n)}</span></div>
+      <svg viewBox="0 0 ${W} ${base + 13}" role="img" aria-label="${c.label} crashes by month">${bars}
+        <line x1="0" x2="${W}" y1="${y(n / 12)}" y2="${y(n / 12)}" class="even"/>
+        <line x1="0" x2="${W}" y1="${base + .5}" y2="${base + .5}" class="axis"/></svg>
+      <div class="muted">${n < MONTH_MIN ? 'Too few to read' : `Busiest: ${MONTHS[j]}–${MONTHS[(j + 1) % 12]}, ${fmtPct(two[1], n)}`}</div></div>`;
+  }).join('');
+  el.querySelector('.tot').textContent = `${fmtInt(all)} reported crashes, ${S.years}`;
+}
+function overviewHTML() {
+  const opts = S.counties.map((n, i) => `<option value="${i}"${String(i) === state.mcty ? ' selected' : ''}>${esc(n)} County</option>`).join('');
+  return `<div id="overview"><div class="oh">Crashes by month in <select id="mCounty" aria-label="Area">
+      <option value="">all of California</option>${opts}</select></div>
+    <div class="muted tot"></div><div class="minis"></div>
+    <div class="muted">One chart per animal type, each on its own scale. Dashed line: the same crashes spread evenly over the
+      year. "Busiest": the two months in a row with the most crashes (an even spread would give 17%). Counts only: traffic
+      also changes with the season.</div></div>`;
+}
+function monthChart(codes) {
+  const n = codes.length, K = S.classes.length;
+  if (!n) return '';
+  const m = MONTHS.map(() => S.classes.map(() => 0));
+  codes.forEach(c => m[Math.floor(c / K)][c % K]++);
+  const tot = m.map(r => r.reduce((a, b) => a + b, 0)), exp = S.month_share.map(p => p * n);
+  const W = 300, top = 12, base = 80, bw = W / 12, ymax = Math.max(...tot, ...exp, 1);
+  const y = v => base - v / ymax * (base - top);
+  const bars = m.map((r, j) => {
+    let h0 = 0;
+    const segs = r.map((v, k) => { if (!v) return ''; const y1 = y(h0 + v), y0 = y(h0); h0 += v;
+      return `<rect x="${j * bw + 2}" y="${y1}" width="${bw - 4}" height="${y0 - y1}" fill="${S.classes[k].color}"/>`; }).join('');
+    const what = r.map((v, k) => v ? `${S.classes[k].label} ${v}` : '').filter(Boolean).join(' · ');
+    return `<g><title>${MONTHS[j]}: ${tot[j]}${what ? ` (${what})` : ''}</title>${segs}` +
+      `<rect x="${j * bw}" y="${top}" width="${bw}" height="${base - top}" fill="transparent"/>` +
+      (tot[j] ? `<text x="${(j + .5) * bw}" y="${y(tot[j]) - 2}" class="v">${tot[j]}</text>` : '') +
+      `<text x="${(j + .5) * bw}" y="${base + 11}">${j + 1}</text></g>`;   // full names do not fit under the bars
+  }).join('');
+  const line = `<polyline points="${exp.map((v, j) => `${(j + .5) * bw},${y(v)}`).join(' ')}" class="state"/>`;
+  let note;
+  if (n < MONTH_MIN) note = 'Too few crashes here to read a seasonal pattern.';
+  else {   // busiest two months in a row (Dec–Jan counts), against the state's share of the same two months
+    const two = busiest2(tot), j = two[0];
+    const st = S.month_share[j] + S.month_share[(j + 1) % 12];
+    note = `Busiest two months: <b>${MONTHS[j]}–${MONTHS[(j + 1) % 12]}</b>, ${two[1]} of ${n} (${fmtPct(two[1], n)}; statewide ${Math.round(st * 100)}%).`;
+  }
+  return `<div class="months"><div class="mh">Reported crashes by month, ${S.years}</div>
+    <svg viewBox="0 0 ${W} ${base + 14}" role="img" aria-label="Crashes by month">${bars}${line}<line x1="0" x2="${W}" y1="${base + .5}" y2="${base + .5}" class="axis"/></svg>
+    <div class="muted">${note} Grey line: the statewide pattern at this total. Counts only: traffic also changes with the season.</div></div>`;
 }
 function addCrashLayer() {
   if (map.getSource('crash')) return;
@@ -238,7 +315,12 @@ function select(i, fly) {
 }
 function renderDetail() {
   const i = state.sel, d = state.details;
-  if (i === null) { $('#detail').innerHTML = 'Tap a road to see its numbers.'; return; }
+  if (i === null) {
+    $('#detail').innerHTML = 'Tap a road to see its numbers.' + overviewHTML();
+    $('#mCounty').addEventListener('change', e => { state.mcty = e.target.value; saveHash(); renderOverview(); });
+    renderOverview();
+    return;
+  }
   if (!d) { $('#detail').innerHTML = 'Loading…'; return; }
   // Big number = m, the best estimate ("about N x"). Color chip and "likely between" = lo..hi, the 80% range
   // (wvc/risk.py q10, q90). On a quiet road with no crash, m is mostly its traffic group's typical rate, so a grey
@@ -256,6 +338,7 @@ function renderDetail() {
       <tr><td>Length</td><td class="num">${d.l[i].toFixed(1)} mi</td></tr>
       ${barrierRow(d.b[i])}
     </table>
+    ${monthChart(d.mo[i])}
     <div style="margin-top:8px">${svLink(state.segGeo.features[i].geometry.coordinates, state.clickLL)}</div>`;
 }
 map.on('click', e => {
@@ -513,7 +596,7 @@ function renderRankDetail(list) {
   if (R.unit === 'seg') {
     el.innerHTML = `<h3>${r.name} · ${esc(r.county)} County</h3><div class="muted">postmile ${r.pm} · ${r.l.toFixed(1)} mi</div>
       <div style="margin-top:6px">${chip} <b>#${fmtInt(r.rank)}</b> of ${fmtInt(rows.length)} stretches</div>${head}
-      <table>${common}${barrierRow(r.b)}</table>
+      <table>${common}${barrierRow(r.b)}</table>${monthChart(state.details.mo[r.i])}
       <div style="margin-top:10px"><button class="btn" id="rOnMap">Show on the map</button> <a id="rClear">back to the list</a></div>
       <div style="margin-top:8px">${svLink(state.segGeo.features[r.i].geometry.coordinates, null)}</div>`;
     $('#rOnMap').addEventListener('click', () => { setView('map'); select(r.i, true); });
@@ -521,6 +604,7 @@ function renderRankDetail(list) {
     el.innerHTML = `<h3>${r.name}</h3><div class="muted">${fmtInt(r.l)} miles of state highway, taken as a whole</div>
       <div style="margin-top:6px">${chip} <b>#${r.rank}</b> of ${rows.length} highways</div>${head}
       <table>${common}<tr><td>Stretches at 10× or more</td><td class="num">${r.n10} of ${r.segs}</td></tr></table>
+      ${monthChart(R.rows.seg.filter(s => s.name === r.name).flatMap(s => state.details.mo[s.i]))}
       <div style="margin-top:10px"><button class="btn" id="rStretches">List its stretches</button> <button class="btn" id="rOnMap">Show on the map</button>
         <a id="rClear">back to the list</a></div>`;
     $('#rStretches').addEventListener('click', () => { R.unit = 'seg'; R.q = r.name; R.county = ''; R.shown = PAGE; R.sort = { k: 'rank', dir: 1 }; renderRank(); });
@@ -650,7 +734,7 @@ function openModal(id) {
   if (id === '#welcome' && CLIP) startClip();
 }
 function closeModals() {
-  document.querySelectorAll('.modal.on').forEach(m => m.classList.remove('on')); lsSet('wvc.welcomed', '1');
+  document.querySelectorAll('.modal.on').forEach(m => m.classList.remove('on')); lsSet(WELCOMED, '1');
   if (CLIP) { vid.pause(); cancelAnimationFrame(headReq); }
 }
 document.querySelectorAll('[data-how]').forEach(a => a.addEventListener('click', ev => { ev.preventDefault(); openModal('#how'); }));
@@ -659,7 +743,9 @@ document.querySelectorAll('.modal .x').forEach(b => b.addEventListener('click', 
 $('#wGo').addEventListener('click', closeModals);
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModals(); });
 $('#grab').addEventListener('click', () => $('#panel').classList.toggle('full'));
-if (lsGet('wvc.welcomed') !== '1' && HASH.intro !== '0') openModal('#welcome');
+// new key when the card gains something returning visitors should see once (2026-11-01: the dashcam clip)
+const WELCOMED = 'wvc.welcomed.clip';
+if (lsGet(WELCOMED) !== '1' && HASH.intro !== '0') openModal('#welcome');
 
 // ---------------- start ----------------
 legend();
