@@ -13,7 +13,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 2 30 16 16 30 2 16z' fill='%23f2c200' stroke='%23222' stroke-width='2'/%3E%3C/svg%3E">
 <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
-<link href="app.css?v=f2b9e89ec6" rel="stylesheet">
+<link href="app.css?v=3b39a3e2a0" rel="stylesheet">
 </head>
 <body>
 <div id="map"></div>
@@ -86,6 +86,8 @@
   <div class="card">
     <button class="x" aria-label="Close">×</button>
     <h1 id="hTitle" style="font-size:18px;margin:0">How it works</h1>
+    <p class="muted">The numbers behind every color, where each input comes from, how gaps are filled, and which
+      thresholds are judgement calls. Figures are drawn from the same data as the map.</p>
     <h2>What is counted</h2>
     <p>Every crash a California police agency reported in 2016–2025 where a vehicle hit an animal (11,859 on
       state highways). The officer's own words decide the animal type; the
@@ -97,21 +99,114 @@
     <p>Each road is cut into stretches of about 3 miles. A stretch's risk is its reported crashes divided by
       the miles all vehicles drove on it, using that year's traffic counts for every year. The statewide average is
       0.0065 reported crashes per million vehicle-miles; colors show how many times that average a stretch is.</p>
+
+    <h2>Where the traffic numbers come from</h2>
+    <p>Traffic is counted at points, not along the whole road: Caltrans has 7,125 count stations on state
+      highways, a median of 1.1 miles apart. Each station reports the traffic just before it and just after
+      it, and Caltrans treats traffic as constant from one station to the next. The map does the same: every tenth of a
+      mile between two stations gets the average of the two counts that describe that section. Nothing is drawn as a
+      slope, and a long gap between stations carries one value all the way.</p>
+    <div class="fig"><img src="figures/aadt_profile.svg" loading="lazy" alt="Traffic along SR-299 in Trinity County: a step line between count stations, with one 20-mile gap on a single value"></div>
+    <details class="more"><summary>More detail on traffic</summary>
+      <ul>
+        <li>Between two stations of the same highway and county: 89% of the road.</li>
+        <li>Before the first or after the last station of a county section: that end station's value (9%).</li>
+        <li>County sections with no station at all: the nearest station on the same highway (1.5%).</li>
+        <li>Each year 2016–2024 uses its own count file. Points missing from a year's file (1.5%–1.7% per
+          year) take the 2024 value, and the last year of crashes reuses 2024 counts. A count of zero
+          is treated as missing.</li>
+        <li>Counts are yearly averages, so there is no seasonal or night-time traffic. Quiet rural roads are counted
+          least often, and their counts are the least precise.</li>
+      </ul>
+    </details>
+
+    <h2>Placing each crash on a road</h2>
+    <p>A crash counts for a state highway when its reported location is within <b>100 m</b> of it. The cutoff matches
+      the police's own judgement: CHP marks each report as highway-related or not, and 96% of crashes
+      within 100 m carry that mark, against about half at 100–200 m and few beyond. When a report names a different road
+      (often the cross street), the crash must lie within 30 m of the highway. Crashes without coordinates are placed at
+      the highway milepost written in the report, when there is one.</p>
+    <div class="fig"><img src="figures/crash_distance.svg" loading="lazy" alt="Crashes by distance from the nearest state highway, split by CHP's highway-related mark"></div>
+    <p class="muted">The cutoff drops 855 crashes that CHP marked highway-related but placed more than 100 m from
+      the road, mostly more than 1 km away, which usually means wrong coordinates.</p>
+
+    <h2>Where there is no data</h2>
+    <p>Nothing is filled in from neighbouring stretches: the map never smooths along a road or across the state.</p>
+    <ul>
+      <li><b>Traffic between count stations</b>: the section's constant value, as above.</li>
+      <li><b>A stretch with no reported crash</b>: its estimate leans on roads with similar traffic, not nearby roads
+        (next section). Quiet ones are usually grey, busy ones blue.</li>
+      <li><b>County and city roads</b>: no published traffic counts, so they are not mapped.</li>
+    </ul>
+
     <h2>Why "at least"</h2>
-    <p>A stretch with only a few crashes can look extreme by chance. Each stretch is therefore pulled toward the
-      typical value for roads with similar traffic (under 2,000, 2,000–5,000, 5,000–15,000, 15,000–50,000 and 50,000 or more vehicles a day). The less traffic a stretch has seen, the more it leans on those similar roads; the
-      more traffic, the more its own crashes decide.</p>
+    <p>A stretch with only a few crashes can look extreme by chance: on a quiet road, one crash in ten years is already
+      far above the state average. Each stretch is therefore pulled toward the typical value for roads with similar
+      traffic (under 2,000, 2,000–5,000, 5,000–15,000, 15,000–50,000 and 50,000 or more vehicles a day). Similar traffic, because the crash rate per mile driven falls steeply as
+      traffic grows:</p>
+    <div class="fig"><img src="figures/band_rates.svg" loading="lazy" alt="Crash rate per mile driven for five traffic groups, as a multiple of the state average"></div>
+    <p>The less traffic a stretch has seen, the more it leans on those similar roads; the more traffic, the more its own
+      crashes decide. For a typical stretch, its own record carries about half the weight on the quietest roads and
+      roughly 80% elsewhere:</p>
+    <div class="fig"><img src="figures/shrink_weight.svg" loading="lazy" alt="Weight of a stretch's own crash record against vehicle-miles driven, one curve per traffic group"></div>
     <p>The result is a range for each stretch that we are 80% sure holds its true rate. The color is the bottom of
-      that range: the level we are 90% sure the stretch reaches.</p>
+      that range: the level we are 90% sure the stretch reaches. (80% leaves 10% out at each end, so its bottom is a
+      90%-sure floor.)</p>
+    <div class="fig"><img src="figures/one_range.svg" loading="lazy" alt="Probability curve for one stretch of SR-299 with the at least, best estimate and at most values marked"></div>
     <ul>
       <li><b>Colored</b> (1× and up): the whole range is above the state average.</li>
       <li><b>Below average</b> (blue): the whole range is below it.</li>
       <li><b>Unclear</b> (grey): the range reaches both above and below the state average, so there is too little
         data to tell which. Grey does <b>not</b> mean safe.</li>
     </ul>
+    <h2>A worked example</h2>
+    <p>The stretch where the dashcam clip was filmed, SR-299 TRI 51.7–54.6, step by step. Every number is the one the map uses.</p>
+    <ol class="steps">
+      <li><b>Count.</b> 11 reported crashes in 2016–2025.</li>
+      <li><b>Miles driven.</b> About 6,200 vehicles a day (each year its own count) × 365 days × 2.89 miles,
+        over ten years: 65.7 million vehicle-miles.</li>
+      <li><b>Its own record alone.</b> 11 ÷ 65.7 = 0.168 crashes per million vehicle-miles, which is
+        25.8× the state average.</li>
+      <li><b>Similar roads.</b> It carries 5k–15k vehicles a day. From all 1,247 stretches in that group we
+        fit how their true rates are spread (a Gamma curve, the dashed line below): typically 5.5×, but anywhere
+        from 0.11× to 14.8× for 80% of them. The curve has two numbers, α = 0.53 and
+        β = 14.8: the group behaves as if every stretch started out with 0.53 crashes over 14.8 million
+        vehicle-miles.</li>
+      <li><b>Combine.</b> Add this stretch's own record to that starting point: (0.53 + 11) crashes over
+        (14.8 + 65.7) million vehicle-miles = 0.143 per million, <b>22.1×</b> the state average.
+        That is the same as giving 82% of the weight to its own 25.8× and 18% to the group's
+        5.5×.</li>
+      <li><b>Range and color.</b> The combined curve (solid line) has 10% of its area below 14.3× and 10% above
+        30.7×. The whole range is above the state average and its bottom is 14.3×, so the color is
+        <b>10×</b>.</li>
+    </ol>
+    <div class="fig"><img src="figures/worked_example.svg" loading="lazy" alt="Worked example: the group's wide curve and this stretch's narrow curve around 22 times the state average"></div>
+    <p>A quiet stretch with no reported crash works the same way, but with nothing of its own to add, its curve stays
+      almost as wide as its group's. The range reaches below 1×, so it is grey, even though its best estimate is several
+      times the average:</p>
+    <div class="fig"><img src="figures/worked_zero.svg" loading="lazy" alt="Worked example: a quiet stretch with no crash keeps a wide curve that straddles the state average"></div>
+    <div class="fig"><img src="figures/example_ranges.svg" loading="lazy" alt="80% ranges for seven real stretches, from a quiet road with no crash to the highest stretch in the state"></div>
     <p>The large number in a stretch's box is our single best estimate. On a grey stretch it leans mostly on
-      similar roads, so it can be high even where no crash was reported; the color says what this stretch's own
-      record shows.</p>
+      similar roads, so it can be high even where no crash was reported (top row above); the color says what this
+      stretch's own record shows.</p>
+    <p>The color steps 1×, 3×, 10×, 30× each multiply by about three. Rates span more than a thousandfold, so equal
+      ratios read as equal steps. This is a design choice, not a result.</p>
+
+    <h2>Why an 80% range</h2>
+    <p>A narrower range colors more road but makes more calls that the data later contradicts; a wider one leaves more
+      road grey. We rebuilt the map from 2016–2020 and from 2021–2025 separately and counted stretches called
+      above average from one half and below average from the other. At 80%, 41% of the miles are grey and
+      0.5% of the calls contradict each other. At 70%, contradictions rise to 1.7%. At 90%, they nearly
+      vanish but grey rises to 50%. 80% sits at the bend.</p>
+    <div class="fig"><img src="figures/interval_level.svg" loading="lazy" alt="Two bar charts: grey miles and contradictory calls for range widths from 50% to 95%"></div>
+
+    <h2>Why 3-mile stretches</h2>
+    <p>Shorter stretches pin a hot spot down more precisely but hold fewer crashes, so more of them stay grey: 59%
+      of the miles at 1 mile against 41% at 3 miles. Longer stretches gain less and less (36% at 5 miles)
+      while a short hot spot gets averaged with the quiet road around it. 3 miles balances the two; it is a
+      judgement call.</p>
+    <div class="fig"><img src="figures/segment_length.svg" loading="lazy" alt="Share of grey miles for stretch lengths of 1, 2, 3, 5 and 10 miles"></div>
+
     <h2>How much data is enough</h2>
     <p>There is no fixed number of crashes. It depends on how many miles are driven on the stretch: the fewer the
       miles, the more one crash stands out. For a typical 3-mile stretch in each traffic group:</p>
@@ -145,10 +240,32 @@
       <li>Only state highways are mapped: county and city roads have no published traffic counts.</li>
       <li>Traffic counts are Caltrans estimates; quiet rural roads have the least precise counts.</li>
       <li>Roads are compared with roads of similar traffic only, not with similar terrain or region.</li>
+      <li>Exact ranks shift from one five-year period to the next; the three-way call (above, unclear, below) holds.</li>
     </ul>
     <h2>Checks</h2>
     <p>Risk computed from 2016–2020 predicts the crashes of 2021–2025 much better than traffic alone, and the
-      reverse also holds. In a hand check of 50 random crashes, all 50 were placed on the road named in the report.</p>
+      reverse also holds. Using the other period's raw counts directly does slightly worse than traffic alone: the
+      pull toward similar roads is what makes a stretch's own record useful.</p>
+    <div class="fig"><img src="figures/validation.svg" loading="lazy" alt="Prediction check: this map beats traffic alone in both directions; raw counts and one statewide rate do worse"></div>
+    <p>In a hand check of 50 random crashes, all 50 were placed on the road named in the report.</p>
+    <details class="more"><summary>Every threshold and judgement call</summary>
+      <table class="tbl">
+        <tr><th>Choice</th><th>Value</th><th>Basis</th></tr>
+        <tr><td>Crash within … of the highway</td><td>100 m</td><td>Judgement, then checked against CHP's highway-related mark (above)</td></tr>
+        <tr><td>… when the report names another road</td><td>30 m</td><td>Judgement; the hand check found no crash on the wrong road</td></tr>
+        <tr><td>Crash without coordinates</td><td>report's milepost; "x miles east of" ignored</td><td>Affects about 2% of mapped crashes</td></tr>
+        <tr><td>Stretch length</td><td>3 miles</td><td>Judgement, using the grey-share chart above</td></tr>
+        <tr><td>Range width</td><td>80% (color = 90%-sure floor)</td><td>Convention, then the contradiction check above</td></tr>
+        <tr><td>Color steps</td><td>1×, 3×, 10×, 30×</td><td>Design: steps of about ×3</td></tr>
+        <tr><td>Traffic groups</td><td>under 2,000, 2,000–5,000, 5,000–15,000, 15,000–50,000 and 50,000 or more a day</td><td>Round numbers giving five groups of similar size</td></tr>
+        <tr><td>Similar roads</td><td>by traffic only</td><td>Terrain and region not yet used</td></tr>
+        <tr><td>Traffic between stations</td><td>average of the two counts, constant</td><td>Follows how Caltrans defines its counts</td></tr>
+        <tr><td>Road breaks</td><td>postmile gap over 0.15 or a 400 m jump starts a new piece</td><td>Postmile points are 0.1 mile apart</td></tr>
+        <tr><td>Short ends</td><td>under half a stretch joins the stretch before; under 0.2 mile dropped</td><td>Avoid tiny stretches</td></tr>
+        <tr><td>By-month chart</td><td>under 10 crashes marked too few</td><td>Judgement</td></tr>
+        <tr><td>On the barrier list</td><td>most of the stretch within 200 m</td><td>Judgement; the two datasets draw roads slightly apart</td></tr>
+      </table>
+    </details>
     <h2>Data and credits</h2>
     <ul>
       <li>Crashes: California Highway Patrol, California Crash Reporting System (CCRS), data.ca.gov, public domain.</li>
@@ -161,7 +278,7 @@
     <p class="fine">Data as of October 2026. Not an official product of any agency.</p>
   </div>
 </div>
-<script>window.SITE = {"tiers":[{"label":"Below average","color":"#4a90c2","dark":true,"miles":3491.299099049365},{"label":"Unclear (too little data)","color":"#c9cdd2","dark":false,"miles":6033.793595722983},{"label":"1\u00d7","color":"#fdbb84","dark":false,"miles":1916.2567435932388},{"label":"3\u00d7","color":"#fc8d59","dark":false,"miles":2054.6790560174813},{"label":"10\u00d7","color":"#d7301f","dark":true,"miles":916.4720553434},{"label":"30\u00d7","color":"#7f0000","dark":true,"miles":155.86020418381432}],"classes":[{"label":"Deer","color":"#8c510a"},{"label":"Other wild","color":"#35978f"},{"label":"Farm animal","color":"#7b3294"},{"label":"Dog or cat","color":"#2166ac"},{"label":"Not stated","color":"#777777"}],"counties":["Alameda","Alpine","Amador","Butte","Calaveras","Contra Costa","Colusa","Del Norte","El Dorado","Fresno","Glenn","Humboldt","Imperial","Inyo","Kern","Kings","Los Angeles","Lake","Lassen","Madera","Mendocino","Merced","Mono","Modoc","Monterey","Mariposa","Marin","Napa","Nevada","Orange","Placer","Plumas","Riverside","Sacramento","Santa Barbara","San Bernardino","San Benito","Santa Clara","Santa Cruz","San Diego","San Francisco","Shasta","Sierra","Siskiyou","San Joaquin","San Luis Obispo","San Mateo","Solano","Sonoma","Stanislaus","Sutter","Tehama","Trinity","Tulare","Tuolumne","Ventura","Yolo","Yuba"],"barrier_priority":["Remediated","Barrier","Priority Barrier","Top Priority Barrier"],"seg_mi":"3","years":"2016\u20132025","build":"f2b9e89ec6","clip":{"dur":6.0,"still":2.75,"seen":1.5,"in_lane":3.8,"deer":[[43.0,34.5,5.5],[85.5,35.5,5.0]],"t":[0.02,0.14,0.25,0.36,0.47,0.58,0.69,0.8,0.91,1.03,1.14,1.25,1.36,1.47,1.59,1.69,1.81,1.91,2.02,2.14,2.25,2.37,2.47,2.58,2.7,2.8,2.91,3.03,3.13,3.25,3.36,3.47,3.59,3.69,3.8,3.91,4.02,4.14,4.25,4.36,4.48,4.58,4.7,4.8,4.91,5.03,5.14,5.26,5.36,5.47,5.59,5.69,5.8,5.91],"mph":[50.4,50.4,50.3,50.3,50.2,50.0,49.9,49.7,49.6,49.4,49.3,49.2,49.1,49.0,49.0,49.0,49.0,49.1,49.3,49.4,49.4,49.4,49.2,48.8,48.4,47.8,46.7,45.6,44.1,43.1,41.6,40.4,39.0,37.6,36.4,34.6,33.3,32.2,31.2,30.5,29.9,29.4,29.1,29.1,29.6,30.4,31.3,32.1,33.0,33.7,34.4,35.0,35.6,36.3],"brake":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],"where":[-122.9283,40.698],"seg":2863,"n":11,"lo":14.0},"month_share":[0.0521,0.0409,0.0499,0.0655,0.089,0.0859,0.0857,0.0803,0.1025,0.1377,0.1322,0.0783],"month_by_class":[[[77,12,163],[68,11,125],[122,21,143],[231,32,231],[330,78,340],[326,63,335],[285,60,300],[240,52,305],[263,57,485],[360,88,781],[332,72,770],[167,45,333]],[[16,3,63],[13,5,39],[19,0,48],[37,2,59],[26,9,82],[42,7,78],[47,8,107],[33,9,119],[54,13,118],[30,8,124],[20,4,104],[15,3,79]],[[5,1,113],[3,1,99],[8,3,107],[5,3,85],[4,4,83],[2,2,64],[7,3,83],[5,1,78],[9,3,108],[7,3,111],[5,4,117],[4,2,102]],[[43,8,98],[40,6,54],[48,0,60],[28,9,40],[38,2,47],[27,6,51],[36,1,58],[38,4,51],[34,5,51],[38,6,57],[44,3,70],[46,7,97]],[[2,1,13],[4,2,15],[3,2,8],[5,2,8],[5,2,5],[0,0,16],[4,0,17],[2,0,15],[4,0,12],[3,2,15],[2,0,21],[9,0,19]]]};</script>
-<script src="app.js?v=f2b9e89ec6"></script>
+<script>window.SITE = {"tiers":[{"label":"Below average","color":"#4a90c2","dark":true,"miles":3491.299099049365},{"label":"Unclear (too little data)","color":"#c9cdd2","dark":false,"miles":6033.793595722983},{"label":"1\u00d7","color":"#fdbb84","dark":false,"miles":1916.2567435932388},{"label":"3\u00d7","color":"#fc8d59","dark":false,"miles":2054.6790560174813},{"label":"10\u00d7","color":"#d7301f","dark":true,"miles":916.4720553434},{"label":"30\u00d7","color":"#7f0000","dark":true,"miles":155.86020418381432}],"classes":[{"label":"Deer","color":"#8c510a"},{"label":"Other wild","color":"#35978f"},{"label":"Farm animal","color":"#7b3294"},{"label":"Dog or cat","color":"#2166ac"},{"label":"Not stated","color":"#777777"}],"counties":["Alameda","Alpine","Amador","Butte","Calaveras","Contra Costa","Colusa","Del Norte","El Dorado","Fresno","Glenn","Humboldt","Imperial","Inyo","Kern","Kings","Los Angeles","Lake","Lassen","Madera","Mendocino","Merced","Mono","Modoc","Monterey","Mariposa","Marin","Napa","Nevada","Orange","Placer","Plumas","Riverside","Sacramento","Santa Barbara","San Bernardino","San Benito","Santa Clara","Santa Cruz","San Diego","San Francisco","Shasta","Sierra","Siskiyou","San Joaquin","San Luis Obispo","San Mateo","Solano","Sonoma","Stanislaus","Sutter","Tehama","Trinity","Tulare","Tuolumne","Ventura","Yolo","Yuba"],"barrier_priority":["Remediated","Barrier","Priority Barrier","Top Priority Barrier"],"seg_mi":"3","years":"2016\u20132025","build":"3b39a3e2a0","clip":{"dur":6.0,"still":2.75,"seen":1.5,"in_lane":3.8,"deer":[[43.0,34.5,5.5],[85.5,35.5,5.0]],"t":[0.02,0.14,0.25,0.36,0.47,0.58,0.69,0.8,0.91,1.03,1.14,1.25,1.36,1.47,1.59,1.69,1.81,1.91,2.02,2.14,2.25,2.37,2.47,2.58,2.7,2.8,2.91,3.03,3.13,3.25,3.36,3.47,3.59,3.69,3.8,3.91,4.02,4.14,4.25,4.36,4.48,4.58,4.7,4.8,4.91,5.03,5.14,5.26,5.36,5.47,5.59,5.69,5.8,5.91],"mph":[50.4,50.4,50.3,50.3,50.2,50.0,49.9,49.7,49.6,49.4,49.3,49.2,49.1,49.0,49.0,49.0,49.0,49.1,49.3,49.4,49.4,49.4,49.2,48.8,48.4,47.8,46.7,45.6,44.1,43.1,41.6,40.4,39.0,37.6,36.4,34.6,33.3,32.2,31.2,30.5,29.9,29.4,29.1,29.1,29.6,30.4,31.3,32.1,33.0,33.7,34.4,35.0,35.6,36.3],"brake":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],"where":[-122.9283,40.698],"seg":2863,"n":11,"lo":14.0},"month_share":[0.0521,0.0409,0.0499,0.0655,0.089,0.0859,0.0857,0.0803,0.1025,0.1377,0.1322,0.0783],"month_by_class":[[[77,12,163],[68,11,125],[122,21,143],[231,32,231],[330,78,340],[326,63,335],[285,60,300],[240,52,305],[263,57,485],[360,88,781],[332,72,770],[167,45,333]],[[16,3,63],[13,5,39],[19,0,48],[37,2,59],[26,9,82],[42,7,78],[47,8,107],[33,9,119],[54,13,118],[30,8,124],[20,4,104],[15,3,79]],[[5,1,113],[3,1,99],[8,3,107],[5,3,85],[4,4,83],[2,2,64],[7,3,83],[5,1,78],[9,3,108],[7,3,111],[5,4,117],[4,2,102]],[[43,8,98],[40,6,54],[48,0,60],[28,9,40],[38,2,47],[27,6,51],[36,1,58],[38,4,51],[34,5,51],[38,6,57],[44,3,70],[46,7,97]],[[2,1,13],[4,2,15],[3,2,8],[5,2,8],[5,2,5],[0,0,16],[4,0,17],[2,0,15],[4,0,12],[3,2,15],[2,0,21],[9,0,19]]]};</script>
+<script src="app.js?v=3b39a3e2a0"></script>
 </body>
 </html>
