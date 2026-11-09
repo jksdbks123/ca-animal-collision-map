@@ -13,7 +13,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 2 30 16 16 30 2 16z' fill='%23f2c200' stroke='%23222' stroke-width='2'/%3E%3C/svg%3E">
 <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
-<link href="app.css?v=ab56713134" rel="stylesheet">
+<link href="app.css?v=1b0cf5b9fa" rel="stylesheet">
 </head>
 <body>
 <div id="map"></div>
@@ -87,7 +87,9 @@
     <button class="x" aria-label="Close">×</button>
     <h1 id="hTitle" style="font-size:18px;margin:0">How it works</h1>
     <p class="muted">The numbers behind every color, where each input comes from, how gaps are filled, and which
-      thresholds are judgement calls. Figures are drawn from the same data as the map.</p>
+      thresholds are judgement calls. Figures are drawn from the same data as the map. Each part is written in plain
+      words first; the boxes marked <b>The exact calculation</b> give the formulas and numbers for anyone who wants to
+      redo them.</p>
     <h2>What is counted</h2>
     <p>Every crash a California police agency reported in 2016–2025 where a vehicle hit an animal (11,859 on
       state highways). The officer's own words decide the animal type; the
@@ -99,6 +101,15 @@
     <p>Each road is cut into stretches of about 3 miles. A stretch's risk is its reported crashes divided by
       the miles all vehicles drove on it, using that year's traffic counts for every year. The statewide average is
       0.0065 reported crashes per million vehicle-miles; colors show how many times that average a stretch is.</p>
+    <details class="more"><summary>The exact calculation: rate and state average</summary>
+      <ul>
+        <li>Miles driven on a stretch (million vehicle-miles) = sum over 2016–2025 of that year's vehicles a day × 365 ×
+          length in miles ÷ 1,000,000. The last year reuses the 2024 traffic counts.</li>
+        <li>A stretch's own rate = its crashes ÷ its million vehicle-miles.</li>
+        <li>State average = all 11,859 mapped crashes ÷ all 1,827,218 million vehicle-miles = 0.0065.</li>
+        <li>Every "×" on this site is a rate divided by that state average.</li>
+      </ul>
+    </details>
 
     <h2>Where the traffic numbers come from</h2>
     <p>Traffic is counted at points, not along the whole road: Caltrans has 7,125 count stations on state
@@ -107,8 +118,11 @@
       mile between two stations gets the average of the two counts that describe that section. Nothing is drawn as a
       slope, and a long gap between stations carries one value all the way.</p>
     <div class="fig"><img src="figures/aadt_profile.svg" loading="lazy" alt="Traffic along SR-299 in Trinity County: a step line between count stations, with one 20-mile gap on a single value"></div>
-    <details class="more"><summary>More detail on traffic</summary>
+    <details class="more"><summary>The exact calculation: traffic</summary>
       <ul>
+        <li>Each count station gives "back" traffic (just before it, lower postmile) and "ahead" traffic (just after it).
+          A point between stations A and B of the same highway, county and postmile prefix gets
+          (A's ahead + B's back) ÷ 2. A stretch's traffic is the average over its tenth-mile points.</li>
         <li>Between two stations of the same highway and county: 89% of the road.</li>
         <li>Before the first or after the last station of a county section: that end station's value (9%).</li>
         <li>County sections with no station at all: the nearest station on the same highway (1.5%).</li>
@@ -129,6 +143,18 @@
     <div class="fig"><img src="figures/crash_distance.svg" loading="lazy" alt="Crashes by distance from the nearest state highway, split by CHP's highway-related mark"></div>
     <p class="muted">The cutoff drops 855 crashes that CHP marked highway-related but placed more than 100 m from
       the road, mostly more than 1 km away, which usually means wrong coordinates.</p>
+    <details class="more"><summary>The exact calculation: placing crashes</summary>
+      <ul>
+        <li>Crashes: police reports coded "motor vehicle involved with: animal". Deleted reports are dropped and only
+          the latest version of each report is kept.</li>
+        <li>Candidates: every highway section within 100 m of the reported coordinates. If the report's road fields
+          name a highway number, a candidate with that number wins; otherwise the nearest one.</li>
+        <li>If the report's main road names no highway number (another road), the crash must be within 30 m.</li>
+        <li>The matched point becomes a postmile, and the crash counts for the 3-mile stretch containing it.</li>
+        <li>No coordinates: a highway milepost in the report, such as "299 HUM 1.46", places the crash at that postmile;
+          "x miles east of" is ignored. 224 crashes are placed this way.</li>
+      </ul>
+    </details>
 
     <h2>Where there is no data</h2>
     <p>Nothing is filled in from neighbouring stretches: the map never smooths along a road or across the state.</p>
@@ -145,10 +171,6 @@
       traffic (under 2,000, 2,000–5,000, 5,000–15,000, 15,000–50,000 and 50,000 or more vehicles a day). Similar traffic, because the crash rate per mile driven falls steeply as
       traffic grows:</p>
     <div class="fig"><img src="figures/band_rates.svg" loading="lazy" alt="Crash rate per mile driven for five traffic groups, as a multiple of the state average"></div>
-    <p>The less traffic a stretch has seen, the more it leans on those similar roads; the more traffic, the more its own
-      crashes decide. For a typical stretch, its own record carries about half the weight on the quietest roads and
-      roughly 80% elsewhere:</p>
-    <div class="fig"><img src="figures/shrink_weight.svg" loading="lazy" alt="Weight of a stretch's own crash record against vehicle-miles driven, one curve per traffic group"></div>
     <p>The result is a range for each stretch that we are 80% sure holds its true rate. The color is the bottom of
       that range: the level we are 90% sure the stretch reaches. (80% leaves 10% out at each end, so its bottom is a
       90%-sure floor.)</p>
@@ -159,6 +181,15 @@
       <li><b>Unclear</b> (grey): the range reaches both above and below the state average, so there is too little
         data to tell which. Grey does <b>not</b> mean safe.</li>
     </ul>
+    <details class="more"><summary>The exact calculation: color</summary>
+      <ul>
+        <li>"At least" = 10th percentile and "at most" = 90th percentile of the stretch's rate, as multiples of the
+          state average (formula in the worked example's box below).</li>
+        <li>Blue if at most &lt; 1. Otherwise 30× if at least ≥ 30, 10× if ≥ 10, 3× if ≥ 3, 1× if ≥ 1. Otherwise grey
+          (at least &lt; 1 ≤ at most).</li>
+        <li>The big number in a stretch's box is the best guess (the average of the same curve).</li>
+      </ul>
+    </details>
     <h2>A worked example</h2>
     <p>The stretch where the dashcam clip was filmed, SR-299 TRI 51.7–54.6. Every number is the one the map uses.</p>
     <ol class="steps">
@@ -181,13 +212,35 @@
       alike the group's roads are. If they were all alike, the starter would be large and a stretch's own crashes would
       barely move it. They actually differ a lot, so the starter is small and a stretch's own record soon takes over. The
       computer picks the starter that best matches the crash counts of all 1,247 stretches in the group.</p>
+    <p><b>How much a stretch's own record counts</b> depends only on how its miles compare with the starter's: own miles
+      ÷ (starter miles + own miles). For the example that is 65.7 ÷ (14.8 + 65.7) = 82%. The chart
+      does the same division for every possible number of miles, one line per traffic group. Few miles: the stretch
+      mostly follows similar roads. Many miles: its own crashes decide.</p>
+    <div class="fig"><img src="figures/shrink_weight.svg" loading="lazy" alt="Share of a stretch's own record against its vehicle-miles, one line per traffic group, with the worked example at 82%"></div>
     <p><b>A quiet road with no crash</b> (SR-25 SBT R32.3–R34.3) works the same way. Its starter record is 0.80 crashes over
       7.9 million miles; its own record is 0 crashes over 8.85 million miles. Added up: a best guess of
       7.3×. But with so little record of its own, the likely range is wide, 0.48× to 17.9×. It
       reaches below the state average, so the stretch is grey: the best guess is high only because similar roads are high.</p>
     <div class="fig"><img src="figures/worked_zero.svg" loading="lazy" alt="Worked example: a quiet stretch with no crash keeps a wide curve that reaches below the state average"></div>
-    <p class="muted">For statisticians: the starter record is the shape and rate of a Gamma prior, fitted for each traffic
-      group by maximum likelihood; adding a stretch's crashes and miles is the Gamma–Poisson update.</p>
+    <details class="more"><summary>The exact calculation: starter record, best guess and range</summary>
+      <ul>
+        <li>Model, for each traffic group: a stretch's crash count n is random (Poisson) around its true rate × its
+          million vehicle-miles E. True rates across the group's stretches follow a Gamma distribution with shape α and
+          rate β. The starter record is α crashes over β million vehicle-miles.</li>
+        <li>Fitting α and β: the pair that makes the group's observed counts most likely, i.e. maximizes the sum over its
+          stretches of log P(n), with P(n) = Γ(α+n) ÷ (Γ(α) · n!) · (β ÷ (β+E))<sup>α</sup> · (E ÷ (β+E))<sup>n</sup>
+          (negative binomial). For the example's group: α = 0.53, β = 14.8.</li>
+        <li>After adding the stretch's record, its true rate follows Gamma(α + n, β + E); for the example
+          Gamma(11.53, 80.5).</li>
+        <li>Best guess = (α + n) ÷ (β + E) = 0.143 per million vehicle-miles = 22.1× the state average.
+          Same number as a weighted average: w = E ÷ (β + E) = 82%, best guess = w × n ÷ E + (1 − w) × α ÷ β.
+          The weight chart plots w.</li>
+        <li>"At least" and "at most" = the 10th and 90th percentiles of Gamma(α + n, β + E), divided by the state
+          average: 14.3× and 30.7×.</li>
+        <li>Whole highways (Rankings): the same steps with one Gamma fitted across all highways, because a highway mixes
+          traffic groups.</li>
+      </ul>
+    </details>
     <div class="fig"><img src="figures/example_ranges.svg" loading="lazy" alt="80% ranges for seven real stretches, from a quiet road with no crash to the highest stretch in the state"></div>
     <p>The large number in a stretch's box is our single best estimate. On a grey stretch it leans mostly on
       similar roads, so it can be high even where no crash was reported (top row above); the color says what this
@@ -202,6 +255,16 @@
       0.5% of the calls contradict each other. At 70%, contradictions rise to 1.7%. At 90%, they nearly
       vanish but grey rises to 50%. 80% sits at the bend.</p>
     <div class="fig"><img src="figures/interval_level.svg" loading="lazy" alt="Two bar charts: grey miles and contradictory calls for range widths from 50% to 95%"></div>
+    <details class="more"><summary>The exact calculation: the 80% check</summary>
+      <ul>
+        <li>For a range width W, "at least" is the (100 − W) ÷ 2 percentile and "at most" the (100 + W) ÷ 2 percentile.</li>
+        <li>The whole model, starter records included, is fitted twice: on 2016–2020 crashes and miles only, and
+          on 2021–2025 only. Each fit calls every stretch above (at least ≥ 1×), below (at most &lt; 1×) or grey.</li>
+        <li>A contradiction is a stretch called above in one half and below in the other. Share = contradictions ÷
+          stretches called above or below in both halves. At 80%: 9 of 1,782.</li>
+        <li>Grey miles use the full ten years: miles of grey stretches ÷ all mapped miles.</li>
+      </ul>
+    </details>
 
     <h2>Why 3-mile stretches</h2>
     <p>Shorter stretches pin a hot spot down more precisely but hold fewer crashes, so more of them stay grey: 59%
@@ -209,6 +272,12 @@
       while a short hot spot gets averaged with the quiet road around it. 3 miles balances the two; it is a
       judgement call.</p>
     <div class="fig"><img src="figures/segment_length.svg" loading="lazy" alt="Share of grey miles for stretch lengths of 1, 2, 3, 5 and 10 miles"></div>
+    <details class="more"><summary>The exact calculation: stretch length</summary>
+      <ul>
+        <li>The map was rebuilt with stretches of 1, 2, 3, 5 and 10 miles, everything else unchanged, and colored with
+          the 80% range. Grey share = miles of grey stretches ÷ all mapped miles.</li>
+      </ul>
+    </details>
 
     <h2>How much data is enough</h2>
     <p>There is no fixed number of crashes. It depends on how many miles are driven on the stretch: the fewer the
@@ -250,6 +319,18 @@
       reverse also holds. Using the other period's raw counts directly does slightly worse than traffic alone: the
       pull toward similar roads is what makes a stretch's own record useful.</p>
     <div class="fig"><img src="figures/validation.svg" loading="lazy" alt="Prediction check: this map beats traffic alone in both directions; raw counts and one statewide rate do worse"></div>
+    <details class="more"><summary>The exact calculation: the prediction check</summary>
+      <ul>
+        <li>Fit on one period; for each stretch, expected crashes in the other period = rate × the other period's
+          million vehicle-miles.</li>
+        <li>Score = sum over stretches of log P(actual crashes), with P from a Poisson distribution around the expected
+          number (log-likelihood). Higher, i.e. closer to zero, is better. The chart shows each method's score minus the
+          score of "traffic alone".</li>
+        <li>Methods: same rate everywhere = the fitting period's state average; traffic alone = each traffic group's
+          crashes ÷ miles; other half's raw counts = expect exactly as many crashes as in the fitting period; this map =
+          each stretch's best guess.</li>
+      </ul>
+    </details>
     <p>In a hand check of 50 random crashes, all 50 were placed on the road named in the report.</p>
     <details class="more"><summary>Every threshold and judgement call</summary>
       <table class="tbl">
@@ -281,7 +362,7 @@
     <p class="fine">Data as of October 2026. Not an official product of any agency.</p>
   </div>
 </div>
-<script>window.SITE = {"tiers":[{"label":"Below average","color":"#4a90c2","dark":true,"miles":3491.299099049365},{"label":"Unclear (too little data)","color":"#c9cdd2","dark":false,"miles":6033.793595722983},{"label":"1\u00d7","color":"#fdbb84","dark":false,"miles":1916.2567435932388},{"label":"3\u00d7","color":"#fc8d59","dark":false,"miles":2054.6790560174813},{"label":"10\u00d7","color":"#d7301f","dark":true,"miles":916.4720553434},{"label":"30\u00d7","color":"#7f0000","dark":true,"miles":155.86020418381432}],"classes":[{"label":"Deer","color":"#8c510a"},{"label":"Other wild","color":"#35978f"},{"label":"Farm animal","color":"#7b3294"},{"label":"Dog or cat","color":"#2166ac"},{"label":"Not stated","color":"#777777"}],"counties":["Alameda","Alpine","Amador","Butte","Calaveras","Contra Costa","Colusa","Del Norte","El Dorado","Fresno","Glenn","Humboldt","Imperial","Inyo","Kern","Kings","Los Angeles","Lake","Lassen","Madera","Mendocino","Merced","Mono","Modoc","Monterey","Mariposa","Marin","Napa","Nevada","Orange","Placer","Plumas","Riverside","Sacramento","Santa Barbara","San Bernardino","San Benito","Santa Clara","Santa Cruz","San Diego","San Francisco","Shasta","Sierra","Siskiyou","San Joaquin","San Luis Obispo","San Mateo","Solano","Sonoma","Stanislaus","Sutter","Tehama","Trinity","Tulare","Tuolumne","Ventura","Yolo","Yuba"],"barrier_priority":["Remediated","Barrier","Priority Barrier","Top Priority Barrier"],"seg_mi":"3","years":"2016\u20132025","build":"ab56713134","clip":{"dur":6.0,"still":2.75,"seen":1.5,"in_lane":3.8,"deer":[[43.0,34.5,5.5],[85.5,35.5,5.0]],"t":[0.02,0.14,0.25,0.36,0.47,0.58,0.69,0.8,0.91,1.03,1.14,1.25,1.36,1.47,1.59,1.69,1.81,1.91,2.02,2.14,2.25,2.37,2.47,2.58,2.7,2.8,2.91,3.03,3.13,3.25,3.36,3.47,3.59,3.69,3.8,3.91,4.02,4.14,4.25,4.36,4.48,4.58,4.7,4.8,4.91,5.03,5.14,5.26,5.36,5.47,5.59,5.69,5.8,5.91],"mph":[50.4,50.4,50.3,50.3,50.2,50.0,49.9,49.7,49.6,49.4,49.3,49.2,49.1,49.0,49.0,49.0,49.0,49.1,49.3,49.4,49.4,49.4,49.2,48.8,48.4,47.8,46.7,45.6,44.1,43.1,41.6,40.4,39.0,37.6,36.4,34.6,33.3,32.2,31.2,30.5,29.9,29.4,29.1,29.1,29.6,30.4,31.3,32.1,33.0,33.7,34.4,35.0,35.6,36.3],"brake":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],"where":[-122.9283,40.698],"seg":2863,"n":11,"lo":14.0},"month_share":[0.0521,0.0409,0.0499,0.0655,0.089,0.0859,0.0857,0.0803,0.1025,0.1377,0.1322,0.0783],"month_by_class":[[[77,12,163],[68,11,125],[122,21,143],[231,32,231],[330,78,340],[326,63,335],[285,60,300],[240,52,305],[263,57,485],[360,88,781],[332,72,770],[167,45,333]],[[16,3,63],[13,5,39],[19,0,48],[37,2,59],[26,9,82],[42,7,78],[47,8,107],[33,9,119],[54,13,118],[30,8,124],[20,4,104],[15,3,79]],[[5,1,113],[3,1,99],[8,3,107],[5,3,85],[4,4,83],[2,2,64],[7,3,83],[5,1,78],[9,3,108],[7,3,111],[5,4,117],[4,2,102]],[[43,8,98],[40,6,54],[48,0,60],[28,9,40],[38,2,47],[27,6,51],[36,1,58],[38,4,51],[34,5,51],[38,6,57],[44,3,70],[46,7,97]],[[2,1,13],[4,2,15],[3,2,8],[5,2,8],[5,2,5],[0,0,16],[4,0,17],[2,0,15],[4,0,12],[3,2,15],[2,0,21],[9,0,19]]]};</script>
-<script src="app.js?v=ab56713134"></script>
+<script>window.SITE = {"tiers":[{"label":"Below average","color":"#4a90c2","dark":true,"miles":3491.299099049365},{"label":"Unclear (too little data)","color":"#c9cdd2","dark":false,"miles":6033.793595722983},{"label":"1\u00d7","color":"#fdbb84","dark":false,"miles":1916.2567435932388},{"label":"3\u00d7","color":"#fc8d59","dark":false,"miles":2054.6790560174813},{"label":"10\u00d7","color":"#d7301f","dark":true,"miles":916.4720553434},{"label":"30\u00d7","color":"#7f0000","dark":true,"miles":155.86020418381432}],"classes":[{"label":"Deer","color":"#8c510a"},{"label":"Other wild","color":"#35978f"},{"label":"Farm animal","color":"#7b3294"},{"label":"Dog or cat","color":"#2166ac"},{"label":"Not stated","color":"#777777"}],"counties":["Alameda","Alpine","Amador","Butte","Calaveras","Contra Costa","Colusa","Del Norte","El Dorado","Fresno","Glenn","Humboldt","Imperial","Inyo","Kern","Kings","Los Angeles","Lake","Lassen","Madera","Mendocino","Merced","Mono","Modoc","Monterey","Mariposa","Marin","Napa","Nevada","Orange","Placer","Plumas","Riverside","Sacramento","Santa Barbara","San Bernardino","San Benito","Santa Clara","Santa Cruz","San Diego","San Francisco","Shasta","Sierra","Siskiyou","San Joaquin","San Luis Obispo","San Mateo","Solano","Sonoma","Stanislaus","Sutter","Tehama","Trinity","Tulare","Tuolumne","Ventura","Yolo","Yuba"],"barrier_priority":["Remediated","Barrier","Priority Barrier","Top Priority Barrier"],"seg_mi":"3","years":"2016\u20132025","build":"1b0cf5b9fa","clip":{"dur":6.0,"still":2.75,"seen":1.5,"in_lane":3.8,"deer":[[43.0,34.5,5.5],[85.5,35.5,5.0]],"t":[0.02,0.14,0.25,0.36,0.47,0.58,0.69,0.8,0.91,1.03,1.14,1.25,1.36,1.47,1.59,1.69,1.81,1.91,2.02,2.14,2.25,2.37,2.47,2.58,2.7,2.8,2.91,3.03,3.13,3.25,3.36,3.47,3.59,3.69,3.8,3.91,4.02,4.14,4.25,4.36,4.48,4.58,4.7,4.8,4.91,5.03,5.14,5.26,5.36,5.47,5.59,5.69,5.8,5.91],"mph":[50.4,50.4,50.3,50.3,50.2,50.0,49.9,49.7,49.6,49.4,49.3,49.2,49.1,49.0,49.0,49.0,49.0,49.1,49.3,49.4,49.4,49.4,49.2,48.8,48.4,47.8,46.7,45.6,44.1,43.1,41.6,40.4,39.0,37.6,36.4,34.6,33.3,32.2,31.2,30.5,29.9,29.4,29.1,29.1,29.6,30.4,31.3,32.1,33.0,33.7,34.4,35.0,35.6,36.3],"brake":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],"where":[-122.9283,40.698],"seg":2863,"n":11,"lo":14.0},"month_share":[0.0521,0.0409,0.0499,0.0655,0.089,0.0859,0.0857,0.0803,0.1025,0.1377,0.1322,0.0783],"month_by_class":[[[77,12,163],[68,11,125],[122,21,143],[231,32,231],[330,78,340],[326,63,335],[285,60,300],[240,52,305],[263,57,485],[360,88,781],[332,72,770],[167,45,333]],[[16,3,63],[13,5,39],[19,0,48],[37,2,59],[26,9,82],[42,7,78],[47,8,107],[33,9,119],[54,13,118],[30,8,124],[20,4,104],[15,3,79]],[[5,1,113],[3,1,99],[8,3,107],[5,3,85],[4,4,83],[2,2,64],[7,3,83],[5,1,78],[9,3,108],[7,3,111],[5,4,117],[4,2,102]],[[43,8,98],[40,6,54],[48,0,60],[28,9,40],[38,2,47],[27,6,51],[36,1,58],[38,4,51],[34,5,51],[38,6,57],[44,3,70],[46,7,97]],[[2,1,13],[4,2,15],[3,2,8],[5,2,8],[5,2,5],[0,0,16],[4,0,17],[2,0,15],[4,0,12],[3,2,15],[2,0,21],[9,0,19]]]};</script>
+<script src="app.js?v=1b0cf5b9fa"></script>
 </body>
 </html>
